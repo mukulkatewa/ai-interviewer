@@ -162,9 +162,9 @@ export interface components {
             /** Institution */
             institution: string;
             /** Degree */
-            degree?: string | null;
+            degree: string | null;
             /** Year */
-            year?: string | null;
+            year: string | null;
         };
         /** Experience */
         Experience: {
@@ -176,19 +176,19 @@ export interface components {
              * Start
              * @description As written on the resume, e.g. 'Jan 2023'
              */
-            start?: string | null;
+            start: string | null;
             /**
              * End
              * @description As written, or 'Present'
              */
-            end?: string | null;
+            end: string | null;
             /**
              * Highlights
              * @description Bullet points, verbatim
              */
-            highlights?: string[];
+            highlights: string[];
             /** Technologies */
-            technologies?: string[];
+            technologies: string[];
         };
         /** Gap */
         Gap: {
@@ -213,31 +213,31 @@ export interface components {
             /** Summary */
             summary: string;
             /** Strengths */
-            strengths?: string[];
+            strengths: string[];
             /** Gaps */
-            gaps?: components["schemas"]["Gap"][];
+            gaps: components["schemas"]["Gap"][];
             /** Bullet Rewrites */
-            bullet_rewrites?: components["schemas"]["BulletRewrite"][];
+            bullet_rewrites: components["schemas"]["BulletRewrite"][];
         };
         /** JobProfile */
         JobProfile: {
             /** Title */
-            title?: string | null;
+            title: string | null;
             /** Company */
-            company?: string | null;
+            company: string | null;
             /** Seniority */
-            seniority?: ("intern" | "junior" | "mid" | "senior" | "lead") | null;
+            seniority: ("intern" | "junior" | "mid" | "senior" | "lead") | null;
             /** Min Years Experience */
-            min_years_experience?: number | null;
+            min_years_experience: number | null;
             /** Must Have */
-            must_have?: components["schemas"]["SkillRequirement"][];
+            must_have: components["schemas"]["SkillRequirement"][];
             /** Nice To Have */
-            nice_to_have?: components["schemas"]["SkillRequirement"][];
+            nice_to_have: components["schemas"]["SkillRequirement"][];
             /**
              * Responsibilities
              * @description Short phrases, max ~8
              */
-            responsibilities?: string[];
+            responsibilities: string[];
         };
         /**
          * MatchResult
@@ -262,7 +262,7 @@ export interface components {
              */
             description: string;
             /** Technologies */
-            technologies?: string[];
+            technologies: string[];
         };
         /** RequirementMatch */
         RequirementMatch: {
@@ -276,7 +276,7 @@ export interface components {
              * Matched As
              * @description Resume spelling that satisfied it, if listed
              */
-            matched_as?: string | null;
+            matched_as: string | null;
         };
         /**
          * ResumeProfile
@@ -285,22 +285,22 @@ export interface components {
          */
         ResumeProfile: {
             /** Name */
-            name?: string | null;
+            name: string | null;
             /**
              * Headline
              * @description One-line professional summary
              */
-            headline?: string | null;
+            headline: string | null;
             /** Total Experience Years */
-            total_experience_years?: number | null;
+            total_experience_years: number | null;
             /** Skills */
-            skills?: string[];
+            skills: string[];
             /** Experience */
-            experience?: components["schemas"]["Experience"][];
+            experience: components["schemas"]["Experience"][];
             /** Projects */
-            projects?: components["schemas"]["Project"][];
+            projects: components["schemas"]["Project"][];
             /** Education */
-            education?: components["schemas"]["Education"][];
+            education: components["schemas"]["Education"][];
         };
         /** ResumeSummary */
         ResumeSummary: {
@@ -336,7 +336,7 @@ export interface components {
              * Alternatives
              * @description Skills that satisfy this equally
              */
-            alternatives?: string[];
+            alternatives: string[];
         };
         /** StoredAnalysis */
         StoredAnalysis: {
