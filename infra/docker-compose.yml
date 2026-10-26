@@ -1,8 +1,9 @@
-# Local Postgres for tests and development. Matches Supabase's major version.
-#   docker compose -f infra/docker-compose.yml up -d
+# Local services for tests and development.
+#   Postgres only (tests):  docker compose -f infra/docker-compose.yml up -d
+#   + Kokoro TTS (voice):   docker compose -f infra/docker-compose.yml --profile speech up -d
 services:
   postgres:
-    image: postgres:17-alpine
+    image: postgres:17-alpine  # matches Supabase's major version
     environment:
       POSTGRES_PASSWORD: postgres
     ports:
@@ -13,3 +14,18 @@ services:
       test: ["CMD", "pg_isready", "-U", "postgres"]
       interval: 1s
       retries: 30
+
+  kokoro:
+    profiles: ["speech"]
+    image: ghcr.io/remsky/kokoro-fastapi-cpu:v0.9.0  # pinned; multi-arch (amd64 + arm64)
+    ports:
+      - "8880:8880"
+    # Same CPU budget as the Oracle free VM (4 cores), so local latency
+    # numbers are close to production (projectprep.md, 5.8).
+    cpus: 4
+    environment:
+      # `cpus` caps CPU *time*, but PyTorch still sees every host core and starts
+      # one thread per core; those threads fight over the cap. Measured: 2.3 s ->
+      # 1.4 s first audio for an 8-word sentence once threads match the cap (D23).
+      OMP_NUM_THREADS: "4"
+      MKL_NUM_THREADS: "4"
