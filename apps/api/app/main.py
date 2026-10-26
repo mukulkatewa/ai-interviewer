@@ -1,6 +1,7 @@
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
+import httpx
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
@@ -8,8 +9,11 @@ from fastapi.responses import JSONResponse
 from app.analysis.router import router as analysis_router
 from app.config import get_settings
 from app.db import create_pool
+from app.interview.router import router as interview_router
+from app.interview.socket import router as interview_socket_router
 from app.llm import LLMBusyError, LLMError
 from app.resume.router import router as resume_router
+from app.speech.tts import KokoroTTS
 
 
 @asynccontextmanager
@@ -19,9 +23,13 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         # Fail at startup, not on the first user request.
         raise RuntimeError("DATABASE_URL is not set")
     app.state.pool = await create_pool(settings.database_url, settings.db_pool_max_size)
+    # One HTTP client for Kokoro: keeps connections warm between sentences.
+    tts_http = httpx.AsyncClient(timeout=settings.tts_timeout_s)
+    app.state.tts = KokoroTTS(tts_http, settings.kokoro_url, settings.kokoro_voice)
     try:
         yield
     finally:
+        await tts_http.aclose()
         await app.state.pool.close()
 
 
@@ -36,6 +44,8 @@ app.add_middleware(
 )
 app.include_router(resume_router)
 app.include_router(analysis_router)
+app.include_router(interview_router)
+app.include_router(interview_socket_router)
 
 
 # LLM failures are handled here once, so routes contain only the happy path.
