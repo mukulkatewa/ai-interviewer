@@ -151,6 +151,25 @@ Each decision: **what we chose → why → what we gave up.**
 - **Chose:** After the model answers, code verifies facts it can check: scores are computed by code (D6), and a rewritten bullet is dropped if its "original" isn't really in the resume.
 - **Why:** Cheap, deterministic guards catch the most damaging AI mistakes (made-up content shown to the user as theirs).
 
+### D15. Backend talks to Postgres directly; RLS locks the public API
+- **Chose:** FastAPI connects with `asyncpg` (a fast async Postgres driver) through Supabase's **session pooler**, and every query filters by `user_id`. RLS is turned on for every table with **no policies**, which means "deny everything" for Supabase's auto-generated public Data API.
+- **Why:** Direct SQL gives us transactions and, later, a job queue (`SELECT ... FOR UPDATE SKIP LOCKED`) that the REST Data API can't do. It is also one network hop fewer. Locking the Data API matters because the publishable key is public (it ships to browsers): without RLS, anyone could read every resume.
+- **Gave up:** The frontend can't read tables directly with `supabase-js`; it goes through our API. That's what we want anyway: one place for business rules.
+
+### D16. Verify login tokens locally with public keys (JWKS)
+- **Chose:** Supabase signs each login token (JWT) with a private key (ES256). It publishes the matching public keys at a JWKS URL. Our backend downloads those once, caches them, and checks every token's signature, expiry, audience (`authenticated`) and issuer itself.
+- **Why:** No network call per request (calling Supabase's `/auth/v1/user` would add ~100 ms and hit rate limits). We pin the algorithm to `ES256`, which blocks the classic "change the algorithm in the token header" attack.
+- **Gave up:** A logged-out token stays valid until it expires (Supabase default: 1 hour). Acceptable for this app.
+
+### D17. Don't store the resume PDF
+- **Chose:** Keep only the extracted text and the parsed JSON. The uploaded file is thrown away after parsing.
+- **Why:** Less personal data stored = less to leak, and nothing in the product needs the original file. It also removes Supabase Storage from the MVP.
+- **Gave up:** We can't re-parse with a better parser later; the user re-uploads instead.
+
+### D18. Never hold a DB connection while waiting on the AI
+- **Chose:** Call the LLM first, then open a short transaction to save the results.
+- **Why:** An LLM call takes seconds; the free pooler gives us a handful of connections. Holding one during an AI call means ~5 slow requests could block the whole app.
+
 ---
 
 ## 5. How each feature works (step by step)
@@ -162,7 +181,7 @@ Each decision: **what we chose → why → what we gave up.**
 4. If almost no text → it's a scanned image → show a clear error (OCR is out of scope for MVP).
 5. Small model converts text → `ResumeProfile` JSON (name, skills, experience, projects, education).
 6. Pydantic validates. Invalid → retry once with the error message.
-7. Save PDF to Supabase Storage + parsed JSON to Postgres.
+7. Save the extracted text + parsed JSON to Postgres. The PDF itself is **not** stored (D17).
 
 ### 5.2 Resume ↔ JD analysis
 
@@ -231,6 +250,24 @@ User speaks ─► VAD detects silence ─► browser encodes WAV (16 kHz mono)
 
 ---
 
+## 5.6 HTTP API (phase 3)
+
+Every route except `/health` needs `Authorization: Bearer <Supabase JWT>`.
+
+| Method | Path | Does |
+|---|---|---|
+| `POST` | `/resumes` | Upload PDF → parse → save. Returns the saved resume |
+| `GET` | `/resumes` | My resumes, newest first (summary only) |
+| `GET` | `/resumes/{id}` | One resume with full profile |
+| `DELETE` | `/resumes/{id}` | Delete it (and its analyses) |
+| `POST` | `/analyses` | `{resume_id, job_description}` → analyze → save. Returns the report |
+| `GET` | `/analyses` | My analyses, newest first (summary only) |
+| `GET` | `/analyses/{id}` | One full report |
+
+Not your row → `404`. Bad/expired token → `401`.
+
+---
+
 ## 6. WebSocket protocol
 
 One connection per interview: `wss://api.<domain>/interviews/{id}/ws`
@@ -257,14 +294,21 @@ One connection per interview: `wss://api.<domain>/interviews/{id}/ws`
 
 ## 7. Database (Supabase Postgres)
 
-Every table has `user_id` and **Row Level Security**: a user can only read their own rows.
+Tables are added **when a phase needs them**, one SQL migration per phase in `supabase/migrations/`.
+
+**Now (phase 3):**
 
 ```
-profiles          (id = auth.users.id, display_name, created_at)
-resumes           (id, user_id, file_path, raw_text, parsed jsonb, created_at)
-job_descriptions  (id, user_id, title, company, raw_text, parsed jsonb, created_at)
-resume_analyses   (id, user_id, resume_id, jd_id, score int, result jsonb, created_at)
-interviews        (id, user_id, resume_id, jd_id, status, plan jsonb,
+resumes           (id, user_id → auth.users, file_name, raw_text, profile jsonb, created_at)
+job_descriptions  (id, user_id → auth.users, raw_text, profile jsonb, created_at)
+analyses          (id, user_id → auth.users, resume_id → resumes, job_description_id → job_descriptions,
+                   score smallint, match jsonb, insights jsonb, created_at)
+```
+
+**Later phases (planned):**
+
+```
+interviews        (id, user_id, resume_id, job_description_id, status, plan jsonb,
                    started_at, ended_at, created_at)
                    status: created → in_progress → evaluating → completed | failed
 interview_turns   (id, interview_id, seq, role [interviewer|candidate], phase,
@@ -274,16 +318,25 @@ evaluations       (id, interview_id, overall_score, scores jsonb, metrics jsonb,
 jobs              (id, kind, payload jsonb, status, attempts, run_after, created_at)
 ```
 
-**Why `jsonb` for parsed data?** The structure will change as we improve prompts. JSONB lets us change it without migrations, while important fields (status, scores) stay as real columns we can query.
+**Rules every table follows**
+- `user_id ... references auth.users on delete cascade`: deleting an account deletes all its data in one step.
+- Index on `(user_id, created_at desc)`: the "my history" list is always one index scan.
+- **RLS enabled with no policies** (see D15): Supabase's public Data API can't read or write anything.
+
+**Why `jsonb` for parsed data?** The structure will change as we improve prompts. JSONB lets us change it without migrations, while important fields (score, status) stay as real columns we can query and sort.
 
 **Why latency columns on turns?** So we can show real p50/p95 latency numbers — great for the portfolio and for finding slow parts.
+
+**Migrations:** plain SQL files, applied in order. Production: `npx supabase db push --db-url "$DATABASE_URL"`. Tests: the test suite applies the same files to a throwaway local Postgres (Docker), so tests and production use identical SQL.
 
 ---
 
 ## 8. Security & privacy
 
-- **Auth:** Frontend logs in with Supabase → gets a JWT → sends it to FastAPI → FastAPI verifies it with Supabase's public keys (JWKS). No passwords stored by us.
-- **RLS:** Even if our backend has a bug, the DB itself blocks users from reading others' data.
+- **Auth:** Frontend logs in with Supabase → gets a JWT → sends it as `Authorization: Bearer <token>` → FastAPI verifies it locally with Supabase's public keys (D16). No passwords stored by us.
+- **Ownership:** every query includes `user_id = <current user>`. Asking for someone else's resume returns **404, not 403**, so attackers can't even learn which IDs exist.
+- **RLS:** on for every table with no policies, so the public Data API (reachable by anyone holding the publishable key) sees nothing.
+- **Least privilege:** the backend only needs `DATABASE_URL` and the public JWKS URL. The Supabase secret key is not loaded by the app at all.
 - **Prompt injection:** Resume/JD text is wrapped in tags and the model is told it's data, not instructions.
 - **Uploads:** Type + size + page limits. PDFs are parsed, never executed.
 - **Secrets:** Only in `.env` (never committed). `.env.example` shows the names.
@@ -316,6 +369,8 @@ ai-interviewer/
 │   │   │   ├── main.py         app setup, mounts routers
 │   │   │   ├── config.py       settings from .env
 │   │   │   ├── deps.py         shared dependencies (LLM clients)
+│   │   │   ├── auth.py         JWT verification → CurrentUser
+│   │   │   ├── db.py           asyncpg pool (one per process)
 │   │   │   ├── llm.py          LLMClient interface + Groq implementation
 │   │   │   ├── resume/         PDF → text → ResumeProfile, /resumes routes
 │   │   │   ├── jd/             JD text → JobProfile
@@ -324,7 +379,8 @@ ai-interviewer/
 │   │   │   └── speech/         STT + TTS providers (later)
 │   │   └── tests/
 │   └── web/                ← Next.js frontend (later)
-└── infra/                  ← docker-compose, Caddy, Supabase SQL (later)
+├── supabase/migrations/    ← SQL migrations, applied in order
+└── infra/                  ← docker-compose (local Postgres), Caddy (later)
 ```
 
 ---
@@ -337,7 +393,7 @@ Each step ends with something we can **run and test**.
 |---|---|---|
 | 1 | ✅ Resume parsing API | Upload a PDF → get clean `ResumeProfile` JSON; tests pass offline |
 | 2 | ✅ JD parsing + match report | Resume + JD → score, gaps, bullet rewrites |
-| 3 | Supabase setup | Tables + RLS + Google login + JWT check in FastAPI |
+| 3 | Supabase setup | Tables + RLS + JWT check in FastAPI; resumes and analyses saved per user |
 | 4 | Frontend: upload + report pages | Real user can log in, upload, see report |
 | 5 | Speech spike | Script measures Groq Whisper + Kokoro latency on our machine |
 | 6 | TTS + WebSocket | Server can speak a question to the browser |
