@@ -11,7 +11,8 @@ Design decisions and architecture: [`projectprep.md`](projectprep.md).
 | Resume parsing | ✅ |
 | Resume ↔ JD analysis | ✅ |
 | Auth (Supabase JWT) + persistence | ✅ |
-| Frontend, voice interview, evaluation | in progress |
+| Web app: login, upload, job match report | ✅ |
+| Voice interview, evaluation | in progress |
 
 ## Run the API locally
 
@@ -25,6 +26,23 @@ uv run uvicorn app.main:app --reload
 ```
 
 Open http://localhost:8000/docs.
+
+## Run the web app locally
+
+Requires Node 22+.
+
+```bash
+cd apps/web
+cp .env.example .env.local   # Supabase URL + publishable key, API URL
+npm install
+npm run dev
+```
+
+Open http://localhost:3000. After changing API models, run `npm run gen:api` to regenerate the TypeScript types.
+
+**Supabase setup for login** (dashboard → Authentication):
+- *URL Configuration*: add `http://localhost:3000/auth/callback` (and your production URL) to **Redirect URLs**.
+- *Providers*: enable **Google** with an OAuth client from Google Cloud Console. Email magic links work without this.
 
 ## Database migrations
 
