@@ -198,6 +198,21 @@ Each decision: **what we chose → why → what we gave up.**
 - **Code guards stay:** duplicate entries are removed in code after parsing (D14), because even the best model can't *guarantee* it.
 - **Later:** add a second free provider behind `LLMClient` as a fallback when Groq is at capacity.
 
+### D23. Speech: fix Kokoro threads, open with a cached acknowledgement, pipeline sentences
+- **Measured problem:** the first benchmark run missed the target (≈ 3.9 s per turn). TTS was the whole problem: 2.9 s before the first audio of an 8-word sentence.
+- **Cause 1, thread oversubscription.** Docker's `cpus: 4` limits CPU *time*, but PyTorch still saw all 12 host cores and started 12 threads that fought over 4 cores' worth of time. Setting `OMP_NUM_THREADS=4` gave first audio **2.3 s → 1.4 s** for 8 words. (The Oracle VM has exactly 4 cores, so production avoids this anyway, but the setting makes it explicit.)
+- **Cause 2, Kokoro doesn't stream inside a sentence.** First byte ≈ total time; cost grows ~170 ms per word. So the *first* sentence length decides the wait: 2 words = 0.57 s, 8 words = 1.36 s.
+- **Chose:**
+  1. Right after STT, play a **pre-recorded acknowledgement** ("Got it.", "Okay.", "Thanks."). Code picks it, not the LLM, and it costs 0 ms of TTS. The LLM is told not to open with its own acknowledgement.
+  2. The LLM reply is split into sentences as it streams. Each sentence goes to Kokoro as soon as it's complete, and the next is synthesized while the current one plays (RTF 0.5 means no gaps).
+  3. Kokoro container: 4 CPUs, 4 threads.
+- **Rejected:** Groq-hosted Orpheus TTS needs org-level terms acceptance and has a small free quota. Parler/Bark: too slow (phase 0 research).
+
+### D24. Give Whisper the interview's vocabulary, written as a sentence
+- **Measured problem:** Whisper turned technical words into wrong ones: "Redis" → "ridis", "idempotency" → "impotency". In a tech interview, the transcript is what gets scored.
+- **Chose:** pass Whisper a `prompt` built from the resume + JD skills, written **as natural speech**: "In this interview we talked about PostgreSQL, MongoDB, … Redis pub/sub, idempotency keys …". WER on the 30 s answer: **8.6% → 2.9%** (what's left is formatting like "30" vs "thirty").
+- **Careful:** Whisper treats the prompt as the transcript so far and copies its *style*. A bare list ("Terms: PostgreSQL, …") made it write **"POSGR SQL"** (short answer WER 0% → 15%). One reordered sentence did the same. The prompt is fragile, so the benchmark keeps checking it.
+
 ---
 
 ## 5. How each feature works (step by step)
@@ -413,8 +428,20 @@ jobs              (id, kind, payload jsonb, status, attempts, run_after, created
 
 ## 9. Performance budget
 
-| Step | Target | How |
-|---|---|---|
+**Measured** in phase 5 (`docs/benchmarks/speech-2026-10-27.md`; two full runs, medians):
+
+| Step | Target | Measured | How |
+|---|---|---|---|
+| End of speech detection | ~0.5 s | 0.6 s (setting) | Silero VAD silence threshold |
+| STT, 15 s answer | ~0.5 s | 0.31–0.84 s | Groq Whisper turbo (varies with Groq load) |
+| First sentence from LLM | ~0.3 s | 0.29–0.51 s | gpt-oss on Groq, streaming |
+| First sentence audio | ~0.5–1 s | 0.57–0.65 s for 2 words, 1.36–1.38 s for 8 words | Kokoro, 4 CPUs / 4 threads |
+| **Total, short opener** | **< 2.5 s** | **1.86–2.49 s** | |
+| **Total, cached acknowledgement (D23)** | | **≈ 1.2–1.5 s to first sound** | Pre-recorded clip right after STT |
+
+Later sentences never wait: Kokoro makes audio **~2× faster than it plays** (RTF ≈ 0.5), so sentence 2 is ready before sentence 1 ends.
+
+---|---|---|
 | End of speech detection | ~0.5 s | Silero VAD silence threshold |
 | STT | ~0.5 s | Groq Whisper turbo |
 | First sentence from SLM | ~0.3 s | Small model on Groq, streaming |
@@ -462,7 +489,7 @@ Each step ends with something we can **run and test**.
 | 2 | ✅ JD parsing + match report | Resume + JD → score, gaps, bullet rewrites |
 | 3 | ✅ Supabase setup | Tables + RLS + JWT check in FastAPI; resumes and analyses saved per user |
 | 4 | ✅ Frontend: login, upload, report pages | Real user can log in, upload, analyze, see report |
-| 5 | Speech spike | Script measures Groq Whisper + Kokoro latency on our machine |
+| 5 | ✅ Speech spike | Script measures Groq Whisper + Kokoro latency on our machine |
 | 6 | TTS + WebSocket | Server can speak a question to the browser |
 | 7 | STT + VAD | Browser sends an answer, server shows the transcript |
 | 8 | SLM interview loop | Full voice interview with phases and follow-ups |
