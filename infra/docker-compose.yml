@@ -1,0 +1,15 @@
+# Local Postgres for tests and development. Matches Supabase's major version.
+#   docker compose -f infra/docker-compose.yml up -d
+services:
+  postgres:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_PASSWORD: postgres
+    ports:
+      - "54329:5432"  # unusual port so it never clashes with a system Postgres
+    tmpfs:
+      - /var/lib/postgresql/data  # throwaway data: fast, and every start is clean
+    healthcheck:
+      test: ["CMD", "pg_isready", "-U", "postgres"]
+      interval: 1s
+      retries: 30
