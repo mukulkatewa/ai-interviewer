@@ -335,8 +335,8 @@ Each step ends with something we can **run and test**.
 
 | # | Step | Done when |
 |---|---|---|
-| 1 | **Resume parsing API** | Upload a PDF → get clean `ResumeProfile` JSON; tests pass offline |
-| 2 | JD parsing + match report | Resume + JD → score, gaps, bullet rewrites |
+| 1 | ✅ Resume parsing API | Upload a PDF → get clean `ResumeProfile` JSON; tests pass offline |
+| 2 | ✅ JD parsing + match report | Resume + JD → score, gaps, bullet rewrites |
 | 3 | Supabase setup | Tables + RLS + Google login + JWT check in FastAPI |
 | 4 | Frontend: upload + report pages | Real user can log in, upload, see report |
 | 5 | Speech spike | Script measures Groq Whisper + Kokoro latency on our machine |
