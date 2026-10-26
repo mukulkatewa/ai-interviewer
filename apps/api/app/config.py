@@ -28,6 +28,10 @@ class Settings(BaseSettings):
 
     max_upload_bytes: int = 5 * 1024 * 1024
 
+    # Browser origins allowed to call the API (D19). JSON list in env, e.g.
+    # CORS_ORIGINS='["https://app.example.com"]'. Never "*": we send credentials.
+    cors_origins: list[str] = ["http://localhost:3000"]
+
     @property
     def jwt_issuer(self) -> str:
         return f"{self.supabase_url.rstrip('/')}/auth/v1"
