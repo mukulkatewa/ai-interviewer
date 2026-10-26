@@ -1,22 +1,40 @@
 """Shared FastAPI dependencies.
 
-Each provider is cached so the process holds one client (one connection pool)
-per role. Tests swap them out via `app.dependency_overrides`.
+Providers are cached: the process holds one Groq connection pool, and one
+lightweight client per job on top of it. Tests swap them via
+`app.dependency_overrides`.
 """
 
 from functools import lru_cache
 
+import groq
+
 from app.config import get_settings
-from app.llm import GroqClient, LLMClient
+from app.llm import GroqClient, LLMClient, create_groq
 
 
 @lru_cache
-def get_extraction_llm() -> LLMClient:
+def get_groq() -> groq.AsyncGroq:
+    return create_groq(get_settings().groq_api_key)
+
+
+# One provider per job, each with its own model, so jobs draw on separate
+# per-model rate limits (projectprep.md, D22).
+
+
+@lru_cache
+def get_resume_llm() -> LLMClient:
     s = get_settings()
-    return GroqClient(s.groq_api_key, s.groq_extraction_model, s.groq_extraction_effort)
+    return GroqClient(get_groq(), s.groq_resume_model, s.groq_resume_effort)
+
+
+@lru_cache
+def get_jd_llm() -> LLMClient:
+    s = get_settings()
+    return GroqClient(get_groq(), s.groq_jd_model, s.groq_jd_effort)
 
 
 @lru_cache
 def get_analysis_llm() -> LLMClient:
     s = get_settings()
-    return GroqClient(s.groq_api_key, s.groq_analysis_model, s.groq_analysis_effort)
+    return GroqClient(get_groq(), s.groq_analysis_model, s.groq_analysis_effort)

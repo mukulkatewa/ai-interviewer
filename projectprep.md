@@ -144,7 +144,7 @@ Each decision: **what we chose → why → what we gave up.**
 - **Why:** Free tiers are small. One viral post without limits = our Groq quota is gone in an hour.
 
 ### D13. Reasoning effort is a setting per job
-- **Chose:** `gpt-oss` models "think" before answering. Extraction uses `reasoning_effort=low`; writing advice uses `medium`.
+- **Chose:** `gpt-oss` models "think" before answering. Extraction uses `reasoning_effort=low`; writing advice uses `medium`. Which *model* each job uses is in D22.
 - **Why:** Measured on Groq: `low` uses about 3× fewer output tokens and gives steadier latency (~0.3–0.7 s) for simple extraction, with the same result. Advice quality benefits from more thinking, and it isn't live.
 
 ### D14. Code checks the AI's work where it can
@@ -182,6 +182,21 @@ Each decision: **what we chose → why → what we gave up.**
 ### D21. API types are generated, never hand-written
 - **Chose:** FastAPI already describes every route in an OpenAPI document. `npm run gen:api` turns it into TypeScript types, and `openapi-fetch` gives a typed client: wrong field name = compile error.
 - **Why:** Backend and frontend can't drift apart silently. Change a Pydantic model → regenerate → TypeScript shows every place to fix.
+
+### D22. Free-tier rate limits are the real bottleneck, so each job picks its model
+- **Measured (Groq free tier):** every model has its **own** limit of **8,000 tokens/minute and 1,000 requests/day**. Resume parsing benchmark, 8 runs each on the same resume:
+
+  | Model, effort | Correct | Median time |
+  |---|---|---|
+  | gpt-oss-20b, low | 7/8 (filed projects as jobs, duplicated entries) | 5.3 s, worst 45 s (hidden rate-limit retries) |
+  | gpt-oss-20b, medium | 8/8 | 12.6 s |
+  | **gpt-oss-120b, low** | **8/8** | **0.9 s** |
+
+- **Chose:** one setting per *job*, so jobs spread across separate per-model allowances:
+  resume parsing → `gpt-oss-120b` low · JD extraction → `gpt-oss-20b` low · advice → `gpt-oss-120b` medium · live interview turns (later) → `gpt-oss-20b`.
+- **Fail fast:** at most 1 automatic retry. If Groq still says "too many requests", the API answers **503 + `Retry-After`** ("at capacity, try again shortly") instead of making the user wait 45 s.
+- **Code guards stay:** duplicate entries are removed in code after parsing (D14), because even the best model can't *guarantee* it.
+- **Later:** add a second free provider behind `LLMClient` as a fallback when Groq is at capacity.
 
 ---
 

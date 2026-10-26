@@ -6,8 +6,8 @@ from fastapi import APIRouter, Depends, HTTPException, Response, UploadFile
 from app.auth import AuthUser
 from app.config import Settings, get_settings
 from app.db import Db
-from app.deps import get_extraction_llm
-from app.llm import LLMClient, LLMError
+from app.deps import get_resume_llm
+from app.llm import LLMClient
 from app.resume import repo
 from app.resume.extract import ResumeExtractionError, extract_text
 from app.resume.structure import structure_resume
@@ -24,7 +24,7 @@ async def upload_resume(
     user: AuthUser,
     db: Db,
     settings: Annotated[Settings, Depends(get_settings)],
-    llm: Annotated[LLMClient, Depends(get_extraction_llm)],
+    llm: Annotated[LLMClient, Depends(get_resume_llm)],
 ) -> repo.StoredResume:
     # Read at most one byte past the limit: enough to detect "too big"
     # without loading an arbitrarily large upload into memory.
@@ -43,11 +43,8 @@ async def upload_resume(
         raise HTTPException(422, str(e)) from e
 
     # LLM first, DB after: never hold a connection while waiting on the model (D18).
-    try:
-        profile = await structure_resume(text, llm)
-    except LLMError as e:
-        raise HTTPException(502, "Could not read the resume. Please try again.") from e
-
+    # LLM failures become 502/503 in app/main.py.
+    profile = await structure_resume(text, llm)
     file_name = (file.filename or "resume.pdf")[:MAX_FILE_NAME]
     return await repo.insert(db, user.id, file_name, text, profile)
 

@@ -8,19 +8,35 @@ import json
 from functools import lru_cache
 from typing import Literal, Protocol, TypeVar
 
-from groq import AsyncGroq
+import groq
 from pydantic import BaseModel, ValidationError
 
 T = TypeVar("T", bound=BaseModel)
 ReasoningEffort = Literal["low", "medium", "high"]
+
+DEFAULT_RETRY_AFTER_S = 30
 
 
 class LLMError(RuntimeError):
     """The model failed to produce usable output after all retries."""
 
 
+class LLMBusyError(LLMError):
+    """The provider is rate limiting us (free-tier quota). Retrying later will work."""
+
+    def __init__(self, retry_after_s: int):
+        super().__init__(f"Rate limited; retry after {retry_after_s}s")
+        self.retry_after_s = retry_after_s
+
+
 class LLMClient(Protocol):
     async def complete_json(self, system: str, user: str, schema: type[T]) -> T: ...
+
+
+def create_groq(api_key: str) -> groq.AsyncGroq:
+    # One retry absorbs a brief blip. More would hide a quota wall behind a
+    # long silent wait (we measured 45 s); failing fast lets us tell the user (D22).
+    return groq.AsyncGroq(api_key=api_key, max_retries=1)
 
 
 @lru_cache
@@ -32,17 +48,28 @@ def _schema_instructions(schema: type[BaseModel]) -> str:
     )
 
 
+def _retry_after(e: groq.RateLimitError) -> int:
+    try:
+        return max(1, round(float(e.response.headers.get("retry-after", ""))))
+    except ValueError:
+        return DEFAULT_RETRY_AFTER_S
+
+
 class GroqClient:
+    """One model + settings for one job (resume parsing, JD extraction, ...).
+
+    The AsyncGroq instance is shared by all jobs: it holds the HTTP connection
+    pool, so every call reuses warm connections.
+    """
+
     def __init__(
         self,
-        api_key: str,
+        client: groq.AsyncGroq,
         model: str,
         reasoning_effort: ReasoningEffort | None = None,
         max_attempts: int = 2,
     ):
-        # One AsyncGroq instance holds one HTTP connection pool; create it once
-        # per process and reuse it so each call skips the TCP/TLS handshake.
-        self._client = AsyncGroq(api_key=api_key)
+        self._client = client
         self._model = model
         # Only reasoning models (e.g. gpt-oss) accept this; None omits the parameter.
         self._extra = {"reasoning_effort": reasoning_effort} if reasoning_effort else {}
@@ -53,7 +80,7 @@ class GroqClient:
 
         JSON mode guarantees syntactically valid JSON, but not the right shape.
         If Pydantic rejects it, we show the model its own validation error and
-        ask again: small models usually fix a missing or mistyped field on retry.
+        ask again: models usually fix a missing or mistyped field on retry.
         """
         messages = [
             {"role": "system", "content": f"{system}\n\n{_schema_instructions(schema)}"},
@@ -62,13 +89,19 @@ class GroqClient:
         last_error: ValidationError | None = None
 
         for _ in range(self._max_attempts):
-            resp = await self._client.chat.completions.create(
-                model=self._model,
-                messages=messages,
-                response_format={"type": "json_object"},
-                temperature=0,  # structured output should be repeatable, not creative
-                **self._extra,
-            )
+            try:
+                resp = await self._client.chat.completions.create(
+                    model=self._model,
+                    messages=messages,
+                    response_format={"type": "json_object"},
+                    temperature=0,  # structured output should be repeatable, not creative
+                    **self._extra,
+                )
+            except groq.RateLimitError as e:
+                raise LLMBusyError(_retry_after(e)) from e
+            except groq.APIError as e:
+                raise LLMError(f"Groq request failed: {e}") from e
+
             raw = resp.choices[0].message.content or ""
             try:
                 return schema.model_validate_json(raw)

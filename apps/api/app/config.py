@@ -12,11 +12,15 @@ class Settings(BaseSettings):
 
     groq_api_key: str = ""
 
+    # One model per job; each model has its own free-tier rate limit (projectprep.md, D22).
     # Model names change; check console.groq.com/docs/models.
-    # Extraction: turn text into JSON. Simple task, so think little (projectprep.md, D13).
-    groq_extraction_model: str = "openai/gpt-oss-20b"
-    groq_extraction_effort: ReasoningEffort = "low"
-    # Analysis: write advice for the user. Not live, so spend more thinking on quality.
+    # Resume parsing: errors here mislead every later interview, so use the most accurate model.
+    groq_resume_model: str = "openai/gpt-oss-120b"
+    groq_resume_effort: ReasoningEffort = "low"
+    # JD extraction: simpler task; a different model spreads the load.
+    groq_jd_model: str = "openai/gpt-oss-20b"
+    groq_jd_effort: ReasoningEffort = "low"
+    # Advice for the user: not live, so spend more thinking on quality (D13).
     groq_analysis_model: str = "openai/gpt-oss-120b"
     groq_analysis_effort: ReasoningEffort = "medium"
 
