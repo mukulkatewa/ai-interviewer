@@ -8,7 +8,8 @@ Pydantic's fast parser do the work in both directions.
 from typing import Annotated
 
 import asyncpg
-from fastapi import Depends, Request
+from fastapi import Depends
+from starlette.requests import HTTPConnection
 
 
 async def create_pool(dsn: str, max_size: int) -> asyncpg.Pool:
@@ -21,9 +22,10 @@ async def create_pool(dsn: str, max_size: int) -> asyncpg.Pool:
     )
 
 
-def get_pool(request: Request) -> asyncpg.Pool:
-    # Created once in the app lifespan (app/main.py).
-    return request.app.state.pool
+def get_pool(conn: HTTPConnection) -> asyncpg.Pool:
+    # Created once in the app lifespan (app/main.py). HTTPConnection, not
+    # Request, so WebSocket routes can depend on it too.
+    return conn.app.state.pool
 
 
 Db = Annotated[asyncpg.Pool, Depends(get_pool)]

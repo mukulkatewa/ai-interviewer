@@ -32,6 +32,14 @@ class Settings(BaseSettings):
 
     max_upload_bytes: int = 5 * 1024 * 1024
 
+    # Kokoro-FastAPI (infra/docker-compose.yml, profile "speech"); D23.
+    kokoro_url: str = "http://localhost:8880"
+    kokoro_voice: str = "af_heart"
+    # A sentence takes ~0.6-4 s on 4 CPUs (benchmark); past this, fall back to browser speech (D26).
+    tts_timeout_s: float = 15.0
+    # How long a new interview WebSocket may stay open without sending `auth`.
+    ws_auth_timeout_s: float = 10.0
+
     # Browser origins allowed to call the API (D19). JSON list in env, e.g.
     # CORS_ORIGINS='["https://app.example.com"]'. Never "*": we send credentials.
     cors_origins: list[str] = ["http://localhost:3000"]

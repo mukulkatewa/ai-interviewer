@@ -8,9 +8,11 @@ lightweight client per job on top of it. Tests swap them via
 from functools import lru_cache
 
 import groq
+from starlette.requests import HTTPConnection
 
 from app.config import get_settings
 from app.llm import GroqClient, LLMClient, create_groq
+from app.speech.tts import TTSProvider
 
 
 @lru_cache
@@ -38,3 +40,8 @@ def get_jd_llm() -> LLMClient:
 def get_analysis_llm() -> LLMClient:
     s = get_settings()
     return GroqClient(get_groq(), s.groq_analysis_model, s.groq_analysis_effort)
+
+
+def get_tts(conn: HTTPConnection) -> TTSProvider:
+    # Created in the app lifespan, which also closes its HTTP client on shutdown.
+    return conn.app.state.tts

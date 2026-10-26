@@ -4,7 +4,7 @@ import { type NextRequest, NextResponse } from "next/server";
 import { env } from "@/lib/env";
 
 // Pages that need a logged-in user. Everything else is public.
-const PROTECTED = ["/dashboard", "/resumes", "/analyses"];
+const PROTECTED = ["/dashboard", "/resumes", "/analyses", "/interviews"];
 
 /**
  * Runs before every matched request (D20):
