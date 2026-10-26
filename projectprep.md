@@ -213,6 +213,14 @@ Each decision: **what we chose → why → what we gave up.**
 - **Chose:** pass Whisper a `prompt` built from the resume + JD skills, written **as natural speech**: "In this interview we talked about PostgreSQL, MongoDB, … Redis pub/sub, idempotency keys …". WER on the 30 s answer: **8.6% → 2.9%** (what's left is formatting like "30" vs "thirty").
 - **Careful:** Whisper treats the prompt as the transcript so far and copies its *style*. A bare list ("Terms: PostgreSQL, …") made it write **"POSGR SQL"** (short answer WER 0% → 15%). One reordered sentence did the same. The prompt is fragile, so the benchmark keeps checking it.
 
+### D25. An interview is started from a job match report
+- **Chose:** `interviews.analysis_id` → the analysis already knows the resume, the JD and the skill gaps. A composite FK `(analysis_id, user_id)` means you can only start an interview from your own report, enforced by the database (same pattern as D15).
+- **Why:** the interviewer should ask about *this* job and *your* gaps. Starting from a report gives it all of that with one ID, and the user flow (match report → practice) is natural.
+
+### D26. If TTS fails, the browser speaks
+- **Chose:** the transcript text is always sent. If Kokoro fails, the server sends the unspoken text and the browser reads it with `speechSynthesis` (robotic, but free and always available).
+- **Why:** a self-hosted TTS on a free VM will sometimes be down or slow. A worse voice is much better than a silent, stuck interview.
+
 ---
 
 ## 5. How each feature works (step by step)
@@ -350,6 +358,16 @@ Code: `apps/api/bench/speech.py`. Results: `docs/benchmarks/`.
 
 ---
 
+## 5.9 Voice out: the server speaks (phase 6)
+
+1. On a job match report, **"Start mock interview"** → `POST /interviews {analysis_id}`. An interview belongs to one analysis, which already links the resume and the JD (D25).
+2. `/interviews/[id]` opens a WebSocket, authenticates, and shows a **Start** button. Browsers only allow audio after a click, so the click also unlocks audio.
+3. On `start`, the server marks the interview `in_progress` and speaks the **intro**, built from a template: "Hi Rahul! I'm your interviewer today for the Backend Engineer role at Razorpay. … Tell me about yourself …". No LLM is needed for a fixed opener; the first sentence is 2 words so the first audio is fast (D23).
+4. Text is split into sentences. Each sentence goes through Kokoro and is sent as soon as it's ready, while the browser plays the previous one.
+5. The browser queues the MP3s on the Web Audio clock so sentences play back-to-back with no gaps, and shows captions.
+
+---
+
 ## 6. WebSocket protocol
 
 One connection per interview: `wss://api.<domain>/interviews/{id}/ws`
@@ -372,6 +390,12 @@ One connection per interview: `wss://api.<domain>/interviews/{id}/ws`
 
 **Formats:** user audio = WAV 16 kHz mono (what Whisper likes, ~32 KB/sec). AI audio = MP3 (every browser can decode it).
 
+**Rules (phase 6)**
+- The server waits **10 s** for the `auth` message, then closes. A socket nobody authenticates must not hold a slot open.
+- Close codes: `4400` bad message · `4401` not logged in / bad token · `4404` interview not found (or not yours, same answer as HTTP).
+- Audio for a sentence is always `audio_meta` **then** one binary frame. A WebSocket keeps order, so the client pairs them without IDs.
+- If TTS fails mid-reply, the server sends `error {code: "tts_unavailable", text: <the part not spoken yet>}`. The browser speaks that text with its built-in voice (`speechSynthesis`), so the interview keeps going (D26).
+
 ---
 
 ## 7. Database (Supabase Postgres)
@@ -387,12 +411,18 @@ analyses          (id, user_id → auth.users, resume_id → resumes, job_descri
                    score smallint, match jsonb, insights jsonb, created_at)
 ```
 
+**Phase 6:**
+
+```
+interviews        (id, user_id → auth.users, analysis_id → analyses (same user),
+                   status, created_at, started_at, ended_at)
+                   status: created → in_progress → evaluating → completed | failed
+```
+
 **Later phases (planned):**
 
 ```
-interviews        (id, user_id, resume_id, job_description_id, status, plan jsonb,
-                   started_at, ended_at, created_at)
-                   status: created → in_progress → evaluating → completed | failed
+interviews        + plan jsonb (phase 8)
 interview_turns   (id, interview_id, seq, role [interviewer|candidate], phase,
                    text, audio_seconds, stt_ms, llm_ms, tts_ms, created_at)
 evaluations       (id, interview_id, overall_score, scores jsonb, metrics jsonb,
