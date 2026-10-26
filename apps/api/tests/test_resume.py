@@ -102,3 +102,37 @@ def test_requires_login(client, fake_llm):
 
     app.dependency_overrides.pop(get_current_user)
     assert client.get("/resumes").status_code == 401
+
+
+# --- Stage 2 guard: duplicate entries ------------------------------------------
+
+
+def test_dedupe_profile_drops_repeats_case_and_space_insensitively():
+    from app.resume.schema import Education, Experience, Project
+    from app.resume.structure import dedupe_profile
+
+    job = Experience(company="Flipkart", role="SDE Intern", start="May 2024")
+    profile = ResumeProfile(
+        skills=["React", "react ", "Go"],
+        experience=[job, job.model_copy(update={"company": "flipkart"}), Experience(company="Flipkart", role="SDE")],
+        projects=[Project(name="DevChat"), Project(name="DevChat", description="dup")],
+        education=[Education(institution="NIT Trichy", degree="B.Tech")] * 2,
+    )
+
+    clean = dedupe_profile(profile)
+
+    assert clean.skills == ["React", "Go"]
+    assert [(e.company, e.role) for e in clean.experience] == [("Flipkart", "SDE Intern"), ("Flipkart", "SDE")]
+    assert [p.description for p in clean.projects] == [""]  # first occurrence wins
+    assert len(clean.education) == 1
+
+
+def test_upload_maps_rate_limit_to_503_with_retry_after(client, fake_llm):
+    from app.llm import LLMBusyError
+
+    fake_llm.results[ResumeProfile] = LLMBusyError(retry_after_s=7)
+    resp = upload(client, make_pdf(RESUME_TEXT))
+
+    assert resp.status_code == 503
+    assert resp.headers["Retry-After"] == "7"
+    assert client.get("/resumes").json() == []

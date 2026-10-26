@@ -11,7 +11,7 @@ from pydantic import BaseModel
 
 from app.auth import CurrentUser, get_current_user
 from app.config import get_settings
-from app.deps import get_analysis_llm, get_extraction_llm
+from app.deps import get_analysis_llm, get_jd_llm, get_resume_llm
 from app.main import app
 from app.resume.schema import ResumeProfile
 
@@ -63,13 +63,14 @@ class FakeLLM:
 
 @pytest.fixture
 def fake_llm():
-    """One fake serves both LLM roles; tests register results per schema."""
+    """One fake serves every LLM job; tests register results per schema."""
     llm = FakeLLM({ResumeProfile: ResumeProfile(name="Asha Verma", skills=["Python", "FastAPI"])})
-    app.dependency_overrides[get_extraction_llm] = lambda: llm
-    app.dependency_overrides[get_analysis_llm] = lambda: llm
+    providers = (get_resume_llm, get_jd_llm, get_analysis_llm)
+    for provider in providers:
+        app.dependency_overrides[provider] = lambda: llm
     yield llm
-    app.dependency_overrides.pop(get_extraction_llm, None)
-    app.dependency_overrides.pop(get_analysis_llm, None)
+    for provider in providers:
+        app.dependency_overrides.pop(provider, None)
 
 
 # --- database -------------------------------------------------------------------

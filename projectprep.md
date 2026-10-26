@@ -144,7 +144,7 @@ Each decision: **what we chose → why → what we gave up.**
 - **Why:** Free tiers are small. One viral post without limits = our Groq quota is gone in an hour.
 
 ### D13. Reasoning effort is a setting per job
-- **Chose:** `gpt-oss` models "think" before answering. Extraction uses `reasoning_effort=low`; writing advice uses `medium`.
+- **Chose:** `gpt-oss` models "think" before answering. Extraction uses `reasoning_effort=low`; writing advice uses `medium`. Which *model* each job uses is in D22.
 - **Why:** Measured on Groq: `low` uses about 3× fewer output tokens and gives steadier latency (~0.3–0.7 s) for simple extraction, with the same result. Advice quality benefits from more thinking, and it isn't live.
 
 ### D14. Code checks the AI's work where it can
@@ -169,6 +169,34 @@ Each decision: **what we chose → why → what we gave up.**
 ### D18. Never hold a DB connection while waiting on the AI
 - **Chose:** Call the LLM first, then open a short transaction to save the results.
 - **Why:** An LLM call takes seconds; the free pooler gives us a handful of connections. Holding one during an AI call means ~5 slow requests could block the whole app.
+
+### D19. Reads on the server, uploads straight from the browser
+- **Chose:** Pages that *show* data (dashboard, report) are **Server Components**: Next.js reads the login cookie, calls FastAPI from the server with the user's token, and sends finished HTML. Actions that *send* data (upload PDF, start analysis) call FastAPI **directly from the browser** with the token.
+- **Why:** Server reads mean no loading spinners and no request chains in the browser. Uploads skip Next.js because a Vercel function accepts at most **4.5 MB** of request body, smaller than our 5 MB resume limit, and a second hop would add time for nothing. The interview WebSocket must go direct anyway.
+- **Cost:** FastAPI needs a **CORS allowlist** (only our frontend's origin may call it from a browser).
+
+### D20. Supabase sessions in cookies, refreshed by `proxy.ts`
+- **Chose:** `@supabase/ssr` stores the session in cookies. Next.js 16's `proxy.ts` (formerly "middleware") runs before each page, refreshes an expiring token, and sends logged-out users to `/login`. Login: **Google** (main) or **email magic link** (fallback when Google isn't set up).
+- **Why:** Cookies work for both server and browser code. Refreshing in one central place means no page ever sees an expired token.
+
+### D21. API types are generated, never hand-written
+- **Chose:** FastAPI already describes every route in an OpenAPI document. `npm run gen:api` turns it into TypeScript types, and `openapi-fetch` gives a typed client: wrong field name = compile error.
+- **Why:** Backend and frontend can't drift apart silently. Change a Pydantic model → regenerate → TypeScript shows every place to fix.
+
+### D22. Free-tier rate limits are the real bottleneck, so each job picks its model
+- **Measured (Groq free tier):** every model has its **own** limit of **8,000 tokens/minute and 1,000 requests/day**. Resume parsing benchmark, 8 runs each on the same resume:
+
+  | Model, effort | Correct | Median time |
+  |---|---|---|
+  | gpt-oss-20b, low | 7/8 (filed projects as jobs, duplicated entries) | 5.3 s, worst 45 s (hidden rate-limit retries) |
+  | gpt-oss-20b, medium | 8/8 | 12.6 s |
+  | **gpt-oss-120b, low** | **8/8** | **0.9 s** |
+
+- **Chose:** one setting per *job*, so jobs spread across separate per-model allowances:
+  resume parsing → `gpt-oss-120b` low · JD extraction → `gpt-oss-20b` low · advice → `gpt-oss-120b` medium · live interview turns (later) → `gpt-oss-20b`.
+- **Fail fast:** at most 1 automatic retry. If Groq still says "too many requests", the API answers **503 + `Retry-After`** ("at capacity, try again shortly") instead of making the user wait 45 s.
+- **Code guards stay:** duplicate entries are removed in code after parsing (D14), because even the best model can't *guarantee* it.
+- **Later:** add a second free provider behind `LLMClient` as a fallback when Groq is at capacity.
 
 ---
 
@@ -265,6 +293,21 @@ Every route except `/health` needs `Authorization: Bearer <Supabase JWT>`.
 | `GET` | `/analyses/{id}` | One full report |
 
 Not your row → `404`. Bad/expired token → `401`.
+
+---
+
+## 5.7 Web app pages (phase 4)
+
+| Path | Rendered | Shows |
+|---|---|---|
+| `/` | Server, public | Landing page: what it does, "Get started" |
+| `/login` | Client | Google button + email magic link |
+| `/auth/callback` | Route handler | Finishes login (exchanges the one-time code for a session) |
+| `/dashboard` | Server | My resumes + my analyses, upload card |
+| `/resumes/[id]` | Server + client form | Parsed resume; paste a JD → "Analyze" |
+| `/analyses/[id]` | Server | Score, skill coverage, strengths, gaps, bullet rewrites |
+
+Everything under `(app)/` requires login. Stack: Next.js 16 (App Router), TypeScript, Tailwind CSS v4, shadcn/ui.
 
 ---
 
@@ -393,8 +436,8 @@ Each step ends with something we can **run and test**.
 |---|---|---|
 | 1 | ✅ Resume parsing API | Upload a PDF → get clean `ResumeProfile` JSON; tests pass offline |
 | 2 | ✅ JD parsing + match report | Resume + JD → score, gaps, bullet rewrites |
-| 3 | Supabase setup | Tables + RLS + JWT check in FastAPI; resumes and analyses saved per user |
-| 4 | Frontend: upload + report pages | Real user can log in, upload, see report |
+| 3 | ✅ Supabase setup | Tables + RLS + JWT check in FastAPI; resumes and analyses saved per user |
+| 4 | ✅ Frontend: login, upload, report pages | Real user can log in, upload, analyze, see report |
 | 5 | Speech spike | Script measures Groq Whisper + Kokoro latency on our machine |
 | 6 | TTS + WebSocket | Server can speak a question to the browser |
 | 7 | STT + VAD | Browser sends an answer, server shows the transcript |

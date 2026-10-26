@@ -10,9 +10,9 @@ from app.analysis.matching import match_resume
 from app.analysis.schema import AnalysisReport
 from app.auth import AuthUser
 from app.db import Db
-from app.deps import get_analysis_llm, get_extraction_llm
+from app.deps import get_analysis_llm, get_jd_llm
 from app.jd.structure import structure_jd
-from app.llm import LLMClient, LLMError
+from app.llm import LLMClient
 from app.resume import repo as resume_repo
 
 router = APIRouter(prefix="/analyses", tags=["analyses"])
@@ -28,7 +28,7 @@ async def create_analysis(
     body: AnalyzeRequest,
     user: AuthUser,
     db: Db,
-    extraction_llm: Annotated[LLMClient, Depends(get_extraction_llm)],
+    jd_llm: Annotated[LLMClient, Depends(get_jd_llm)],
     analysis_llm: Annotated[LLMClient, Depends(get_analysis_llm)],
 ) -> repo.StoredAnalysis:
     # Ownership check before any LLM spend: someone else's resume is a 404.
@@ -36,15 +36,12 @@ async def create_analysis(
     if resume is None:
         raise HTTPException(404, "Resume not found")
 
-    # No DB connection is held during these calls (D18).
-    try:
-        # Sequential by necessity: insights need the match, the match needs the JD.
-        job = await structure_jd(body.job_description, extraction_llm)
-        match = match_resume(resume.profile, job)
-        insights = await write_insights(resume.profile, job, match, analysis_llm)
-    except LLMError as e:
-        raise HTTPException(502, "Could not analyze the job description. Please try again.") from e
-
+    # No DB connection is held during these calls (D18); LLM failures become
+    # 502/503 in app/main.py. Sequential by necessity: insights need the match,
+    # the match needs the JD.
+    job = await structure_jd(body.job_description, jd_llm)
+    match = match_resume(resume.profile, job)
+    insights = await write_insights(resume.profile, job, match, analysis_llm)
     report = AnalysisReport(job=job, match=match, insights=insights)
     return await repo.insert(db, user.id, resume.id, body.job_description, report)
 

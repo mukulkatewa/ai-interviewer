@@ -1,11 +1,13 @@
 from typing import Literal
 
-from pydantic import BaseModel, Field
+from pydantic import Field
+
+from app.models import ApiModel
 
 Seniority = Literal["intern", "junior", "mid", "senior", "lead"]
 
 
-class SkillRequirement(BaseModel):
+class SkillRequirement(ApiModel):
     """One requirement from the JD. Met if the candidate has `skill` or any alternative.
 
     "React or Vue" is a single requirement, not two: otherwise a React developer
@@ -16,7 +18,7 @@ class SkillRequirement(BaseModel):
     alternatives: list[str] = Field(default_factory=list, description="Skills that satisfy this equally")
 
 
-class JobProfile(BaseModel):
+class JobProfile(ApiModel):
     title: str | None = None
     company: str | None = None
     seniority: Seniority | None = None
