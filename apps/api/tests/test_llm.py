@@ -40,6 +40,22 @@ async def test_invalid_json_retries_with_error_feedback():
     assert "Invalid JSON" in seen[1][-1]["content"]
 
 
+async def test_reasoning_effort_only_sent_when_set():
+    sent: list[dict] = []
+
+    async def create(**kwargs):
+        sent.append(kwargs)
+        return SimpleNamespace(choices=[SimpleNamespace(message=SimpleNamespace(content="{}"))])
+
+    for effort in ("low", None):
+        client = GroqClient("key", "model", reasoning_effort=effort)
+        client._client = SimpleNamespace(chat=SimpleNamespace(completions=SimpleNamespace(create=create)))
+        await client.complete_json("sys", "user", ResumeProfile)
+
+    assert sent[0]["reasoning_effort"] == "low"
+    assert "reasoning_effort" not in sent[1]
+
+
 async def test_gives_up_after_max_attempts():
     client = GroqClient("key", "model", max_attempts=2)
     stub_groq(client, ['{"skills": 1}', '{"skills": 2}'])

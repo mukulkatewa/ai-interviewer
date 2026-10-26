@@ -6,12 +6,13 @@ tests can pass a fake and we can swap providers without touching callers.
 
 import json
 from functools import lru_cache
-from typing import Protocol, TypeVar
+from typing import Literal, Protocol, TypeVar
 
 from groq import AsyncGroq
 from pydantic import BaseModel, ValidationError
 
 T = TypeVar("T", bound=BaseModel)
+ReasoningEffort = Literal["low", "medium", "high"]
 
 
 class LLMError(RuntimeError):
@@ -32,11 +33,19 @@ def _schema_instructions(schema: type[BaseModel]) -> str:
 
 
 class GroqClient:
-    def __init__(self, api_key: str, model: str, max_attempts: int = 2):
+    def __init__(
+        self,
+        api_key: str,
+        model: str,
+        reasoning_effort: ReasoningEffort | None = None,
+        max_attempts: int = 2,
+    ):
         # One AsyncGroq instance holds one HTTP connection pool; create it once
         # per process and reuse it so each call skips the TCP/TLS handshake.
         self._client = AsyncGroq(api_key=api_key)
         self._model = model
+        # Only reasoning models (e.g. gpt-oss) accept this; None omits the parameter.
+        self._extra = {"reasoning_effort": reasoning_effort} if reasoning_effort else {}
         self._max_attempts = max_attempts
 
     async def complete_json(self, system: str, user: str, schema: type[T]) -> T:
@@ -57,7 +66,8 @@ class GroqClient:
                 model=self._model,
                 messages=messages,
                 response_format={"type": "json_object"},
-                temperature=0,  # extraction should be repeatable, not creative
+                temperature=0,  # structured output should be repeatable, not creative
+                **self._extra,
             )
             raw = resp.choices[0].message.content or ""
             try:
