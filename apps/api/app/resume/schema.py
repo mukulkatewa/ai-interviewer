@@ -1,7 +1,9 @@
-from pydantic import BaseModel, Field
+from pydantic import Field
+
+from app.models import ApiModel
 
 
-class Experience(BaseModel):
+class Experience(ApiModel):
     company: str
     role: str
     start: str | None = Field(None, description="As written on the resume, e.g. 'Jan 2023'")
@@ -10,19 +12,19 @@ class Experience(BaseModel):
     technologies: list[str] = Field(default_factory=list)
 
 
-class Project(BaseModel):
+class Project(ApiModel):
     name: str
     description: str = ""
     technologies: list[str] = Field(default_factory=list)
 
 
-class Education(BaseModel):
+class Education(ApiModel):
     institution: str
     degree: str | None = None
     year: str | None = None
 
 
-class ResumeProfile(BaseModel):
+class ResumeProfile(ApiModel):
     """Structured view of a resume. Every field must come from the resume text;
     the interviewer plans questions from this, so invented facts are a bug."""
 
