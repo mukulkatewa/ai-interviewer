@@ -13,7 +13,8 @@ Design decisions and architecture: [`projectprep.md`](projectprep.md).
 | Auth (Supabase JWT) + persistence | ✅ |
 | Web app: login, upload, job match report | ✅ |
 | Voice interview: interviewer speaks (Kokoro TTS over WebSocket) | ✅ |
-| Voice answers, conversation loop, evaluation | in progress |
+| Voice answers: in-browser VAD + Groq Whisper | ✅ |
+| Conversation loop, evaluation | in progress |
 
 ## Run the API locally
 
