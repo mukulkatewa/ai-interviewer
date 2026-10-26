@@ -1,15 +1,19 @@
+import json
+
 import pytest
 from starlette.websockets import WebSocketDisconnect
 
 from app.analysis.schema import Insights
 from app.auth import CurrentUser, InvalidToken, get_token_verifier
 from app.config import get_settings
-from app.deps import get_tts
+from app.deps import get_stt, get_tts
 from app.jd.schema import JobProfile, SkillRequirement
 from app.main import app
 from app.resume.schema import ResumeProfile
+from app.speech.stt import STTBusyError, Transcript
 from app.speech.tts import TTSError
 from tests.conftest import RESUME_TEXT, USER_A, USER_B, make_pdf
+from tests.test_voice_in import make_wav
 
 # Tokens the fake verifier accepts, and whose user they are.
 TOKENS = {"token-a": USER_A, "token-b": USER_B}
@@ -29,6 +33,20 @@ class FakeTTS:
         return f"mp3:{text}".encode()
 
 
+class FakeSTT:
+    """Returns `text` (or raises it) and records the vocabulary prompt it was given."""
+
+    def __init__(self, text: str | Exception = "I built a FastAPI service at Acme."):
+        self.text = text
+        self.prompts: list[str | None] = []
+
+    async def transcribe(self, wav: bytes, prompt: str | None = None) -> Transcript:
+        self.prompts.append(prompt)
+        if isinstance(self.text, Exception):
+            raise self.text
+        return Transcript(text=self.text, segments=[], stt_ms=300)
+
+
 def fake_verify(token: str) -> CurrentUser:
     if token not in TOKENS:
         raise InvalidToken
@@ -36,7 +54,15 @@ def fake_verify(token: str) -> CurrentUser:
 
 
 @pytest.fixture
-def tts(client):
+def stt(client):
+    fake = FakeSTT()
+    app.dependency_overrides[get_stt] = lambda: fake
+    yield fake
+    app.dependency_overrides.pop(get_stt, None)
+
+
+@pytest.fixture
+def tts(client, stt):
     fake = FakeTTS()
     app.dependency_overrides[get_token_verifier] = lambda: fake_verify
     app.dependency_overrides[get_tts] = lambda: fake
@@ -193,3 +219,62 @@ def test_unknown_message_gets_error_not_disconnect(client, tts, interview_id):
         ws.send_text("not json")
         assert ws.receive_json()["code"] == "bad_message"
         ws.send_json({"type": "end"})
+
+
+# --- WebSocket: answers (phase 7) ----------------------------------------------
+
+
+def started(ws) -> None:
+    """Authenticate, start, and wait until it's the candidate's turn."""
+    start(ws)
+    drain_until_turn_end(ws)
+
+
+def next_json(ws) -> dict:
+    """Next JSON message, skipping audio frames."""
+    while True:
+        message = ws.receive()
+        if message.get("text"):
+            return json.loads(message["text"])
+
+
+def test_answer_is_transcribed_with_vocabulary_and_turn_returns(client, tts, stt, interview_id):
+    with connect(client, interview_id) as ws:
+        started(ws)
+        ws.send_bytes(make_wav(3))
+
+        assert next_json(ws) == {"type": "transcript", "role": "candidate", "text": "I built a FastAPI service at Acme."}
+        assert next_json(ws)["role"] == "interviewer"  # the reply
+        assert next_json(ws)["type"] == "audio_meta"
+        assert next_json(ws)["type"] == "turn_end"
+    assert stt.prompts[0].startswith("In this interview we talked about Python")  # D24
+
+
+def test_answer_before_turn_is_refused(client, tts, stt, interview_id):
+    with connect(client, interview_id) as ws:
+        ws.send_json({"type": "auth", "token": "token-a"})
+        ws.receive_json()
+        ws.send_bytes(make_wav(3))
+        assert ws.receive_json()["code"] == "not_your_turn"
+    assert stt.prompts == []  # no quota spent
+
+
+@pytest.mark.parametrize(
+    ("audio", "stt_text", "code"),
+    [
+        pytest.param(b"garbage", "x", "bad_audio", id="bad-audio"),
+        pytest.param(make_wav(0.1), "x", "bad_audio", id="too-short"),
+        pytest.param(b"\x00" * 5_000_000, "x", "answer_too_long", id="too-long"),
+        pytest.param(make_wav(2), "", "no_speech", id="silence"),
+        pytest.param(make_wav(2), STTBusyError("429"), "stt_busy", id="rate-limited"),
+    ],
+)
+def test_unusable_answer_gives_turn_back(client, tts, stt, interview_id, audio, stt_text, code):
+    stt.text = stt_text
+    with connect(client, interview_id) as ws:
+        started(ws)
+        ws.send_bytes(audio)
+        assert next_json(ws)["code"] == code
+        assert next_json(ws)["type"] == "turn_end"  # candidate can simply answer again
+        ws.send_bytes(make_wav(2))  # ...and the socket accepts the retry
+        assert next_json(ws)["type"] in {"transcript", "error"}
