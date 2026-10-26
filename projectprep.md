@@ -311,6 +311,30 @@ Everything under `(app)/` requires login. Stack: Next.js 16 (App Router), TypeSc
 
 ---
 
+## 5.8 Speech benchmark (phase 5)
+
+**Question it answers:** can one voice turn ("user stops talking" → "AI starts talking") stay under **~2.5 s** with free tools?
+Measured *before* building the interview, because if TTS takes 6 s the design changes.
+
+**Setup (mirrors production)**
+- **TTS:** Kokoro-FastAPI `v0.9.0` CPU Docker image, limited to **4 CPUs** to approximate the Oracle free VM (4 ARM cores). Voice `af_heart`, streaming.
+- **STT:** Groq `whisper-large-v3-turbo`.
+- **LLM:** Groq `gpt-oss-20b` and `gpt-oss-120b` (reasoning `low`), streaming. We time the **first full sentence**, because that's when TTS can start (D8).
+- **Test audio:** Kokoro speaks known answer texts (5–60 s). Whisper transcribes them, so we also get accuracy (**WER**, word error rate) against the original text.
+
+**Measured per step:** median and worst of several runs (cold start reported separately).
+
+| Step | Metric |
+|---|---|
+| TTS | time to first audio byte (TTFB), total time, real-time factor (RTF = time ÷ audio length) |
+| STT | request latency per answer length, WER |
+| LLM | time to first token, time to first complete sentence |
+
+**Turn estimate** = VAD silence wait (0.6 s) + STT (15 s answer) + LLM first sentence + TTS first audio.
+Code: `apps/api/bench/speech.py`. Results: `docs/benchmarks/`.
+
+---
+
 ## 6. WebSocket protocol
 
 One connection per interview: `wss://api.<domain>/interviews/{id}/ws`
