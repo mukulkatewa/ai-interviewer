@@ -1,11 +1,30 @@
+import asyncio
+import os
+import uuid
+from pathlib import Path
+
+import asyncpg
 import pymupdf
 import pytest
 from fastapi.testclient import TestClient
 from pydantic import BaseModel
 
+from app.auth import CurrentUser, get_current_user
+from app.config import get_settings
 from app.deps import get_analysis_llm, get_extraction_llm
 from app.main import app
 from app.resume.schema import ResumeProfile
+
+# Local Postgres from infra/docker-compose.yml. Never point this at Supabase:
+# the suite drops and recreates schemas.
+TEST_DATABASE_URL = os.getenv("TEST_DATABASE_URL", "postgresql://postgres:postgres@localhost:54329/postgres")
+MIGRATIONS = sorted((Path(__file__).parents[3] / "supabase" / "migrations").glob("*.sql"))
+
+# Supabase provides the auth schema; locally we stub the one table we reference.
+AUTH_STUB = "create schema auth; create table auth.users (id uuid primary key);"
+
+USER_A = uuid.UUID("00000000-0000-0000-0000-00000000000a")
+USER_B = uuid.UUID("00000000-0000-0000-0000-00000000000b")
 
 RESUME_TEXT = """Asha Verma
 Backend Engineer | Python, FastAPI, PostgreSQL, Docker
@@ -49,9 +68,58 @@ def fake_llm():
     app.dependency_overrides[get_extraction_llm] = lambda: llm
     app.dependency_overrides[get_analysis_llm] = lambda: llm
     yield llm
-    app.dependency_overrides.clear()
+    app.dependency_overrides.pop(get_extraction_llm, None)
+    app.dependency_overrides.pop(get_analysis_llm, None)
+
+
+# --- database -------------------------------------------------------------------
+
+
+async def _run_sql(*statements: str) -> None:
+    conn = await asyncpg.connect(TEST_DATABASE_URL)
+    try:
+        for sql in statements:
+            await conn.execute(sql)
+    finally:
+        await conn.close()
+
+
+@pytest.fixture(scope="session")
+def database() -> str:
+    """Fresh schema built from the real migration files, once per test session."""
+    try:
+        asyncio.run(
+            _run_sql(
+                "drop schema if exists public cascade; drop schema if exists auth cascade; create schema public;",
+                AUTH_STUB,
+                *(m.read_text() for m in MIGRATIONS),
+            )
+        )
+    except (OSError, asyncpg.PostgresError) as e:
+        pytest.skip(f"Test Postgres unavailable ({e}). Run: docker compose -f infra/docker-compose.yml up -d")
+    return TEST_DATABASE_URL
 
 
 @pytest.fixture
-def client():
-    return TestClient(app)
+def login():
+    """Call login(user_id) to make the API see that user as the caller."""
+
+    def _login(user_id: uuid.UUID) -> None:
+        app.dependency_overrides[get_current_user] = lambda: CurrentUser(id=user_id)
+
+    yield _login
+    app.dependency_overrides.pop(get_current_user, None)
+
+
+@pytest.fixture
+def client(database, login, monkeypatch):
+    """API client on an empty database, logged in as USER_A.
+
+    Entering TestClient runs the real lifespan, so pool startup is tested too.
+    """
+    # Truncating auth.users cascades to every table that references it.
+    asyncio.run(_run_sql("truncate auth.users cascade", f"insert into auth.users values ('{USER_A}'), ('{USER_B}')"))
+    monkeypatch.setattr(get_settings(), "database_url", database)
+    login(USER_A)
+    with TestClient(app) as c:
+        yield c
