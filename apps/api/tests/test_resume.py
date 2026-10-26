@@ -2,6 +2,7 @@ import pytest
 
 from app.llm import LLMError
 from app.resume.extract import ResumeExtractionError, extract_text
+from app.resume.schema import ResumeProfile
 from tests.conftest import RESUME_TEXT, make_pdf
 
 
@@ -58,6 +59,6 @@ def test_parse_resume_rejects_large_file(client, fake_llm):
 
 
 def test_parse_resume_maps_llm_failure_to_502(client, fake_llm):
-    fake_llm.result = LLMError("bad json")
+    fake_llm.results[ResumeProfile] = LLMError("bad json")
     resp = upload(client, make_pdf(RESUME_TEXT))
     assert resp.status_code == 502

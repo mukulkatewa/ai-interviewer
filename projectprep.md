@@ -143,6 +143,14 @@ Each decision: **what we chose → why → what we gave up.**
 - **Chose:** 3 interviews per user per day, 20 minutes max per interview, 2 minutes max per answer, 5 MB max PDF, 5 pages max.
 - **Why:** Free tiers are small. One viral post without limits = our Groq quota is gone in an hour.
 
+### D13. Reasoning effort is a setting per job
+- **Chose:** `gpt-oss` models "think" before answering. Extraction uses `reasoning_effort=low`; writing advice uses `medium`.
+- **Why:** Measured on Groq: `low` uses about 3× fewer output tokens and gives steadier latency (~0.3–0.7 s) for simple extraction, with the same result. Advice quality benefits from more thinking, and it isn't live.
+
+### D14. Code checks the AI's work where it can
+- **Chose:** After the model answers, code verifies facts it can check: scores are computed by code (D6), and a rewritten bullet is dropped if its "original" isn't really in the resume.
+- **Why:** Cheap, deterministic guards catch the most damaging AI mistakes (made-up content shown to the user as theirs).
+
 ---
 
 ## 5. How each feature works (step by step)
@@ -157,10 +165,28 @@ Each decision: **what we chose → why → what we gave up.**
 7. Save PDF to Supabase Storage + parsed JSON to Postgres.
 
 ### 5.2 Resume ↔ JD analysis
-1. Small model extracts from the JD: must-have skills, nice-to-have skills, seniority, key responsibilities.
-2. Code normalizes skill names (lowercase + alias table).
-3. Code computes: must-have coverage %, nice-to-have coverage %, final score (must-haves weigh more).
-4. Model writes: strengths, gaps, and 3–5 rewritten resume bullets (only using facts from the resume).
+
+`POST /analyses` with `{resume: ResumeProfile, job_description: "..."}`. It is **stateless** for now
+(the frontend sends the parsed resume back); once Supabase is in, it will take IDs instead.
+
+1. **Extract the JD** (small model, `reasoning_effort=low`): title, seniority, minimum years,
+   responsibilities, and skill **requirements** split into must-have and nice-to-have.
+   A requirement can have alternatives: "React or Vue" is *one* requirement, met by either skill.
+   Otherwise a candidate who knows React would be punished for not knowing Vue.
+2. **Normalize skill names** (code): lowercase, drop spaces/dots/dashes, then an alias table.
+   So `React.js`, `ReactJS` and `react` are the same skill; `Postgres` = `PostgreSQL`; `k8s` = `Kubernetes`.
+3. **Match** (code), in two levels:
+   - **listed**: the skill is in the resume's skills or a job/project's technologies.
+   - **mentioned**: not listed, but the word appears in a bullet or description.
+     This becomes advice: *"You use Docker in a bullet but it's not in your skills section; add it."*
+4. **Score** (code): `score = 100 × (0.8 × must-have coverage + 0.2 × nice-to-have coverage)`.
+   If the JD has no nice-to-haves, the score is just must-have coverage. Same input → same score, every time.
+5. **Insights** (bigger model, `reasoning_effort=medium`): summary, strengths, gaps with concrete advice,
+   and up to 5 rewritten resume bullets.
+6. **Hallucination guard** (code): a bullet rewrite is kept only if its `original` text really exists in the
+   resume. Rewrites must use placeholders like `[X%]` instead of making up numbers.
+
+**Typical latency:** ~0.6 s JD extraction + ~2–4 s insights, measured on Groq.
 
 ### 5.3 Interview planning
 Before the interview starts, the model creates an **interview plan** (JSON) from resume + JD:
@@ -287,11 +313,13 @@ ai-interviewer/
 ├── apps/
 │   ├── api/                ← FastAPI orchestrator (Python, uv)
 │   │   ├── app/
-│   │   │   ├── main.py         routes + app setup
+│   │   │   ├── main.py         app setup, mounts routers
 │   │   │   ├── config.py       settings from .env
+│   │   │   ├── deps.py         shared dependencies (LLM clients)
 │   │   │   ├── llm.py          LLMClient interface + Groq implementation
-│   │   │   ├── resume/         extract.py, structure.py, schema.py
-│   │   │   ├── jd/             JD parsing + matching (next)
+│   │   │   ├── resume/         PDF → text → ResumeProfile, /resumes routes
+│   │   │   ├── jd/             JD text → JobProfile
+│   │   │   ├── analysis/       skill matching, scoring, insights, /analyses route
 │   │   │   ├── interview/      state machine, turn loop, websocket (later)
 │   │   │   └── speech/         STT + TTS providers (later)
 │   │   └── tests/
