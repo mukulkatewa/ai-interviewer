@@ -12,7 +12,8 @@ Design decisions and architecture: [`projectprep.md`](projectprep.md).
 | Resume ↔ JD analysis | ✅ |
 | Auth (Supabase JWT) + persistence | ✅ |
 | Web app: login, upload, job match report | ✅ |
-| Voice interview, evaluation | in progress |
+| Voice interview: interviewer speaks (Kokoro TTS over WebSocket) | ✅ |
+| Voice answers, conversation loop, evaluation | in progress |
 
 ## Run the API locally
 
@@ -26,6 +27,14 @@ uv run uvicorn app.main:app --reload
 ```
 
 Open http://localhost:8000/docs.
+
+The interviewer's voice needs Kokoro TTS (CPU, ~3 GB image):
+
+```bash
+docker compose -f infra/docker-compose.yml --profile speech up -d kokoro
+```
+
+Without it, interviews still work: the browser's built-in voice reads the questions.
 
 ## Run the web app locally
 

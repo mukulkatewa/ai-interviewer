@@ -1,0 +1,38 @@
+import type { Metadata } from "next";
+import Link from "next/link";
+
+import { Button } from "@/components/ui/button";
+import { getServerApi, unwrap } from "@/lib/api/server";
+import { InterviewRoom } from "./interview-room";
+
+export const metadata: Metadata = { title: "Mock interview" };
+
+export default async function InterviewPage({ params }: PageProps<"/interviews/[id]">) {
+  const { id } = await params;
+  const api = await getServerApi();
+  const interview = unwrap(await api.GET("/interviews/{interview_id}", { params: { path: { interview_id: id } } }));
+
+  return (
+    <div className="space-y-6">
+      <header>
+        <h1 className="text-2xl font-semibold tracking-tight">Mock interview</h1>
+        <p className="text-muted-foreground">
+          {[interview.job_title ?? "Untitled role", interview.company].filter(Boolean).join(" · ")}
+        </p>
+      </header>
+
+      {interview.status === "created" ? (
+        <InterviewRoom interviewId={interview.id} />
+      ) : (
+        // Resuming a half-finished interview comes with the conversation loop (phase 8).
+        <div className="rounded-xl border p-8 text-center">
+          <p className="font-medium">This interview has already started.</p>
+          <p className="mt-1 text-sm text-muted-foreground">Start a new one from your job match report.</p>
+          <Button className="mt-4" variant="outline" nativeButton={false} render={<Link href="/dashboard" />}>
+            Back to dashboard
+          </Button>
+        </div>
+      )}
+    </div>
+  );
+}

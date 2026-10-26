@@ -7,6 +7,7 @@ import { getServerApi, unwrap } from "@/lib/api/server";
 import type { Schemas } from "@/lib/api/client";
 import { formatDate } from "@/lib/format";
 import { cn } from "@/lib/utils";
+import { StartInterview } from "./start-interview";
 
 export const metadata: Metadata = { title: "Job match report" };
 
@@ -60,9 +61,12 @@ export default async function AnalysisPage({ params }: PageProps<"/analyses/[id]
             {[job.company, job.seniority, formatDate(report.created_at)].filter(Boolean).join(" · ")}
           </p>
           <p className="mt-3 max-w-2xl text-pretty">{insights.summary}</p>
-          <Link href={`/resumes/${report.resume_id}`} className="mt-2 inline-block text-sm text-primary hover:underline">
-            View resume
-          </Link>
+          <div className="mt-4 flex flex-wrap items-center gap-4">
+            <StartInterview analysisId={report.id} />
+            <Link href={`/resumes/${report.resume_id}`} className="text-sm text-primary hover:underline">
+              View resume
+            </Link>
+          </div>
         </div>
       </header>
 

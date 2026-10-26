@@ -520,7 +520,7 @@ Each step ends with something we can **run and test**.
 | 3 | ✅ Supabase setup | Tables + RLS + JWT check in FastAPI; resumes and analyses saved per user |
 | 4 | ✅ Frontend: login, upload, report pages | Real user can log in, upload, analyze, see report |
 | 5 | ✅ Speech spike | Script measures Groq Whisper + Kokoro latency on our machine |
-| 6 | TTS + WebSocket | Server can speak a question to the browser |
+| 6 | ✅ TTS + WebSocket | Server can speak a question to the browser |
 | 7 | STT + VAD | Browser sends an answer, server shows the transcript |
 | 8 | SLM interview loop | Full voice interview with phases and follow-ups |
 | 9 | Evaluation report | Rubric scores + evidence + speaking metrics |
