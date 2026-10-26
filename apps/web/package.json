@@ -8,10 +8,14 @@
     "start": "next start",
     "lint": "eslint",
     "gen:api": "uv run --directory ../api python -m app.openapi > .openapi.json && openapi-typescript .openapi.json -o src/lib/api/schema.d.ts",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "vad:assets": "node scripts/copy-vad-assets.mjs",
+    "predev": "npm run vad:assets",
+    "prebuild": "npm run vad:assets"
   },
   "dependencies": {
     "@base-ui/react": "^1.9.0",
+    "@ricky0123/vad-web": "^0.0.31",
     "@supabase/ssr": "^0.12.7",
     "@supabase/supabase-js": "^2.118.0",
     "class-variance-authority": "^0.7.1",

@@ -37,6 +37,8 @@ class Settings(BaseSettings):
     kokoro_voice: str = "af_heart"
     # A sentence takes ~0.6-4 s on 4 CPUs (benchmark); past this, fall back to browser speech (D26).
     tts_timeout_s: float = 15.0
+    # Speech-to-text (benchmarked in docs/benchmarks/speech-2026-10-27.md).
+    groq_stt_model: str = "whisper-large-v3-turbo"
     # How long a new interview WebSocket may stay open without sending `auth`.
     ws_auth_timeout_s: float = 10.0
 

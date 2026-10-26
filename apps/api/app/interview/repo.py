@@ -7,6 +7,10 @@ from uuid import UUID
 import asyncpg
 from pydantic import BaseModel
 
+from app.analysis.schema import MatchResult
+from app.jd.schema import JobProfile
+from app.resume.schema import ResumeProfile
+
 InterviewStatus = Literal["created", "in_progress", "evaluating", "completed", "failed"]
 
 
@@ -63,3 +67,33 @@ async def mark_started(db: asyncpg.Pool, user_id: UUID, interview_id: UUID) -> b
         interview_id, user_id,
     )  # fmt: skip
     return status == "UPDATE 1"
+
+
+class InterviewContext(BaseModel):
+    """Everything the interviewer needs to know, loaded once per session."""
+
+    interview: Interview
+    resume: ResumeProfile
+    job: JobProfile
+    match: MatchResult
+
+
+async def get_context(db: asyncpg.Pool, user_id: UUID, interview_id: UUID) -> InterviewContext | None:
+    row = await db.fetchrow(
+        f"""
+        select q.*, r.profile as resume_profile, j.profile as job_profile, a.match
+        from ({_SELECT} where i.id = $1 and i.user_id = $2) q
+        join analyses a on a.id = q.analysis_id
+        join resumes r on r.id = a.resume_id
+        join job_descriptions j on j.id = a.job_description_id
+        """,
+        interview_id, user_id,
+    )  # fmt: skip
+    if row is None:
+        return None
+    return InterviewContext(
+        interview=Interview(**{k: row[k] for k in Interview.model_fields}),
+        resume=ResumeProfile.model_validate_json(row["resume_profile"]),
+        job=JobProfile.model_validate_json(row["job_profile"]),
+        match=MatchResult.model_validate_json(row["match"]),
+    )

@@ -12,6 +12,8 @@ const eslintConfig = defineConfig([
     "out/**",
     "build/**",
     "next-env.d.ts",
+    // Vendored runtime copied by scripts/copy-vad-assets.mjs; not our code.
+    "public/vad/**",
   ]),
 ]);
 

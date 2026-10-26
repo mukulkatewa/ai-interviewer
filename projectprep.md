@@ -221,6 +221,15 @@ Each decision: **what we chose → why → what we gave up.**
 - **Chose:** the transcript text is always sent. If Kokoro fails, the server sends the unspoken text and the browser reads it with `speechSynthesis` (robotic, but free and always available).
 - **Why:** a self-hosted TTS on a free VM will sometimes be down or slow. A worse voice is much better than a silent, stuck interview.
 
+### D27. End of turn waits 2 s of silence, and "Done answering" ends it instantly
+- **Correction to §9:** the first budget assumed a 0.6 s silence wait. That's right for small talk but wrong for interviews: people pause to think mid-answer, and cutting a candidate off is far worse than waiting a second longer.
+- **Chose:** VAD closes a speech segment after **1 s** of silence. The turn ends **1 s** later unless the candidate starts talking again, in which case segments are joined. That's 2 s total. A **"Done answering"** button submits immediately, for people who want speed.
+- **Effect on latency:** time to first sound is about 2 s + STT (~0.5 s) ≈ **2.5 s** in auto mode, or **~0.5 s after clicking Done**. The cached acknowledgement (D23) still plays first.
+
+### D28. Never listen while the interviewer is talking
+- **Chose:** VAD runs only during the candidate's turn and is paused while interviewer audio plays. The mic also uses the browser's echo cancellation.
+- **Why:** on laptop speakers, the mic hears the interviewer. Without this, the AI's own voice gets "answered", transcribed and scored as the candidate.
+
 ---
 
 ## 5. How each feature works (step by step)
@@ -366,6 +375,21 @@ Code: `apps/api/bench/speech.py`. Results: `docs/benchmarks/`.
 4. Text is split into sentences. Each sentence goes through Kokoro and is sent as soon as it's ready, while the browser plays the previous one.
 5. The browser queues the MP3s on the Web Audio clock so sentences play back-to-back with no gaps, and shows captions.
 
+## 5.10 Voice in: the candidate answers (phase 7)
+
+1. On `turn_end`, the browser starts **listening**: Silero VAD (`@ricky0123/vad-web`, model v5) runs on the mic in the browser.
+2. The answer ends when either:
+   - the user clicks **"Done answering"** (instant), or
+   - they are silent for **2 s** (D27), or
+   - they hit the **2-minute cap** (D12).
+
+   Short pauses inside an answer are kept: speech segments are joined until the turn really ends.
+3. The browser encodes the answer as **WAV, 16 kHz mono** and sends it as one binary WebSocket frame.
+4. The server checks the WAV (format, 0.3 s–125 s). It then calls Groq Whisper with the interview's **vocabulary prompt** (D24): resume skills, JD skills and project names, phrased as a sentence.
+5. The server sends `transcript {role: "candidate", text}` (shown as a caption). Phase 7 then replies with a fixed "Thanks" and gives the turn back; phase 8 replaces that with the real conversation.
+
+**Mic rules:** the mic is asked for on the Start click (one permission prompt), with the browser's echo cancellation on. VAD is **paused while the interviewer speaks** (D28).
+
 ---
 
 ## 6. WebSocket protocol
@@ -395,6 +419,14 @@ One connection per interview: `wss://api.<domain>/interviews/{id}/ws`
 - Close codes: `4400` bad message · `4401` not logged in / bad token · `4404` interview not found (or not yours, same answer as HTTP).
 - Audio for a sentence is always `audio_meta` **then** one binary frame. A WebSocket keeps order, so the client pairs them without IDs.
 - If TTS fails mid-reply, the server sends `error {code: "tts_unavailable", text: <the part not spoken yet>}`. The browser speaks that text with its built-in voice (`speechSynthesis`), so the interview keeps going (D26).
+
+**Rules (phase 7)**
+- The server accepts a binary answer **only after its own `turn_end`**. An answer at any other time gets `error {code: "not_your_turn"}`.
+- Answer errors keep the socket open and give the turn back:
+  - `no_speech`: Whisper heard nothing
+  - `bad_audio`: not 16 kHz mono 16-bit WAV, or shorter than 0.3 s
+  - `answer_too_long`: over 125 s
+  - `stt_busy`: Groq rate limit
 
 ---
 
@@ -462,7 +494,7 @@ jobs              (id, kind, payload jsonb, status, attempts, run_after, created
 
 | Step | Target | Measured | How |
 |---|---|---|---|
-| End of speech detection | ~0.5 s | 0.6 s (setting) | Silero VAD silence threshold |
+| End of speech detection | ~0.5 s | **2 s auto, instant with "Done"** (D27) | Silero VAD + turn grace |
 | STT, 15 s answer | ~0.5 s | 0.31–0.84 s | Groq Whisper turbo (varies with Groq load) |
 | First sentence from LLM | ~0.3 s | 0.29–0.51 s | gpt-oss on Groq, streaming |
 | First sentence audio | ~0.5–1 s | 0.57–0.65 s for 2 words, 1.36–1.38 s for 8 words | Kokoro, 4 CPUs / 4 threads |
@@ -521,7 +553,7 @@ Each step ends with something we can **run and test**.
 | 4 | ✅ Frontend: login, upload, report pages | Real user can log in, upload, analyze, see report |
 | 5 | ✅ Speech spike | Script measures Groq Whisper + Kokoro latency on our machine |
 | 6 | ✅ TTS + WebSocket | Server can speak a question to the browser |
-| 7 | STT + VAD | Browser sends an answer, server shows the transcript |
+| 7 | ✅ STT + VAD | Browser sends an answer, server shows the transcript |
 | 8 | SLM interview loop | Full voice interview with phases and follow-ups |
 | 9 | Evaluation report | Rubric scores + evidence + speaking metrics |
 | 10 | Deploy + limits + analytics | Live URL, quotas, PostHog |

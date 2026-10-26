@@ -43,3 +43,6 @@ next-env.d.ts
 # generated input for gen:api
 .openapi.json
 !.env.example
+
+# copied from node_modules by scripts/copy-vad-assets.mjs
+/public/vad/

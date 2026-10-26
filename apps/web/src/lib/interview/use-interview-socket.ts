@@ -4,6 +4,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 
 import { env } from "@/lib/env";
 import { createClient } from "@/lib/supabase/client";
+import { AnswerRecorder } from "./answer-recorder";
 import { AudioQueue, speakWithBrowser } from "./audio-queue";
 
 // Protocol: projectprep.md, section 6.
@@ -14,7 +15,7 @@ type ServerMessage =
   | { type: "turn_end"; phase: string }
   | { type: "error"; code: string; message: string; text?: string };
 
-export type Status = "connecting" | "ready" | "speaking" | "your_turn" | "failed";
+export type Status = "connecting" | "ready" | "speaking" | "listening" | "thinking" | "failed";
 export type Caption = { role: "interviewer" | "candidate"; text: string };
 
 const CLOSE_REASONS: Record<number, string> = {
@@ -26,9 +27,12 @@ const CLOSE_REASONS: Record<number, string> = {
 export function useInterviewSocket(interviewId: string) {
   const [status, setStatus] = useState<Status>("connecting");
   const [captions, setCaptions] = useState<Caption[]>([]);
-  const [problem, setProblem] = useState<string | null>(null);
+  const [problem, setProblem] = useState<string | null>(null); // fatal: shown instead of status
+  const [notice, setNotice] = useState<string | null>(null); // recoverable: "didn't catch that"
+  const [userSpeaking, setUserSpeaking] = useState(false);
   const ws = useRef<WebSocket | null>(null);
   const audio = useRef<AudioQueue>(new AudioQueue());
+  const recorder = useRef<AnswerRecorder | null>(null);
 
   useEffect(() => {
     let socket: WebSocket | null = null;
@@ -42,20 +46,24 @@ export function useInterviewSocket(interviewId: string) {
           break;
         case "transcript":
           setCaptions((c) => [...c, { role: message.role, text: message.text }]);
+          if (message.role === "interviewer") setStatus("speaking");
           break;
         case "audio_meta":
           break; // the next binary frame is this sentence's audio; captions already show the text
         case "turn_end":
-          // The message arrives before the audio finishes playing: wait for playback.
+          // Arrives before the audio finishes: only start listening once playback ends,
+          // or the mic would hear the interviewer (D28).
           await queue.idle();
-          if (!disposed) setStatus("your_turn");
+          if (disposed) return;
+          setStatus("listening");
+          await recorder.current?.listen();
           break;
         case "error":
           if (message.code === "tts_unavailable" && message.text) {
             await queue.idle(); // finish what our TTS already sent, then read the rest (D26)
             await speakWithBrowser(message.text);
           } else {
-            setProblem(message.message);
+            setNotice(message.message); // the server follows answer errors with turn_end
           }
           break;
       }
@@ -94,16 +102,40 @@ export function useInterviewSocket(interviewId: string) {
       disposed = true;
       socket?.close();
       void queue.close();
+      void recorder.current?.destroy();
+      recorder.current = null;
       audio.current = new AudioQueue(); // a fresh queue if the effect re-runs (React Strict Mode)
     };
   }, [interviewId]);
 
-  /** Call from the Start button's click handler (audio unlock needs the gesture). */
+  /** Start button: unlock audio and ask for the mic in the same click (browsers require a gesture). */
   const start = useCallback(async () => {
     await audio.current.unlock();
+    try {
+      recorder.current = await AnswerRecorder.create({
+        onSpeaking: setUserSpeaking,
+        onAnswer: (wav) => {
+          setUserSpeaking(false);
+          setNotice(null);
+          setStatus("thinking");
+          ws.current?.send(wav);
+        },
+        onNothingHeard: () => {
+          setNotice("We didn't hear anything. Answer whenever you're ready.");
+          void recorder.current?.listen();
+        },
+      });
+    } catch {
+      setNotice("Microphone access is needed to answer. Allow it in your browser, then press Start again.");
+      return;
+    }
+    setNotice(null);
     setStatus("speaking");
     ws.current?.send(JSON.stringify({ type: "start" }));
   }, []);
 
-  return { status, captions, problem, start };
+  /** "Done answering": submit now instead of waiting for silence (D27). */
+  const finishAnswer = useCallback(() => void recorder.current?.done(), []);
+
+  return { status, captions, problem, notice, userSpeaking, start, finishAnswer };
 }
