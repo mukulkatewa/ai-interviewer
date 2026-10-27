@@ -230,6 +230,16 @@ Each decision: **what we chose → why → what we gave up.**
 - **Chose:** VAD runs only during the candidate's turn and is paused while interviewer audio plays. The mic also uses the browser's echo cancellation.
 - **Why:** on laptop speakers, the mic hears the interviewer. Without this, the AI's own voice gets "answered", transcribed and scored as the candidate.
 
+### D29. Code owns the interview structure; the model only writes the words
+- **Chose:** the plan (which questions, in which order), budgets (1 follow-up per question, 20 minutes), and ending are decided by **code**. The live model only chooses *within* what code allows (follow up vs move on) and phrases it naturally.
+- **Why:** a free 20B model is fast but easily wanders: it repeats questions, never ends, or interviews forever on one topic. Keeping structure in code makes the interview predictable and testable, and it degrades gracefully. If the model fails, code still knows the next question.
+- **Gave up:** some spontaneity. An LLM-only interviewer could invent questions on the fly, but it would be much harder to keep on track.
+
+### D30. One live session per interview, one API process
+- **Chose:** an in-memory registry maps interview → live socket. A new connection to the same interview closes the old one (`4409`).
+- **Why:** two tabs answering the same interview would corrupt its turn order. In memory is enough because we run one API process (one Oracle VM).
+- **Later:** with several API processes this moves to a Postgres advisory lock.
+
 ---
 
 ## 5. How each feature works (step by step)
@@ -390,6 +400,26 @@ Code: `apps/api/bench/speech.py`. Results: `docs/benchmarks/`.
 
 **Mic rules:** the mic is asked for on the Start click (one permission prompt), with the browser's echo cancellation on. VAD is **paused while the interviewer speaks** (D28).
 
+## 5.11 The conversation (phase 8)
+
+**Plan, made once.** `POST /interviews` asks the analysis model for an **interview plan** (JSON): 3 resume deep-dive, 3 role-skill and 2 behavioral questions. Each has a *focus* (what a strong answer shows). Role questions target the JD's **missing and "add to skills" must-haves** from the match report first. Intro and wrap-up are fixed lines written by code. The plan is generated before the row is inserted (D18), so it takes ~3–5 s behind "Setting up…".
+
+**One turn, after the candidate's answer:**
+1. Save the candidate turn (text, audio seconds, STT ms, Whisper segments for phase 9).
+2. **Immediately** send a cached acknowledgement ("Got it." / "Okay." / …), which costs 0 ms of TTS (D23).
+3. **Code** decides what's allowed (D29): a follow-up only if this question hasn't used its 1 follow-up and time is left; otherwise move on.
+4. The live model (`gpt-oss-20b`) streams the reply. Its first line is `ACTION: FOLLOW_UP` or `ACTION: NEXT`. For FOLLOW_UP it writes the follow-up question. For NEXT it writes only a one-sentence reaction, and **code appends the next planned question word for word**, so the model can never skip or garble it (D29). If it picks something that isn't allowed, or the line is unreadable, code overrides it.
+5. Sentences go to TTS **while the model is still writing** (a producer/consumer queue), each sent as soon as its audio is ready.
+6. Save the interviewer turn (text, `llm_ms` to first sentence, `tts_ms` to first audio) and the new position. Send `turn_end`.
+
+**Ending:** after the last planned question comes the fixed wrap-up ("anything you'd like to ask me?"). After that answer, the model replies briefly and a fixed closing line follows. Status becomes `evaluating` and the server sends `ended`. The interview also ends when the **20-minute** limit passes (checked every turn), or when the candidate clicks **End interview**.
+
+**Resilience**
+- **LLM busy or failing:** a code-written transition plus the next planned question. The interview never stalls on the model.
+- **TTS failing:** after one failure, TTS is skipped for 60 s (a circuit breaker), so a dead Kokoro can't add a 15 s timeout to every sentence. Those sentences go out as text for the browser voice.
+- **Disconnect:** position and turns are in the DB. Reconnecting to an `in_progress` interview shows **Resume**, and the interviewer says "Welcome back" and repeats the last question.
+- **Two tabs:** the newest connection takes over and the old one is closed with `4409` (single API process, see D30).
+
 ---
 
 ## 6. WebSocket protocol
@@ -419,6 +449,18 @@ One connection per interview: `wss://api.<domain>/interviews/{id}/ws`
 - Close codes: `4400` bad message · `4401` not logged in / bad token · `4404` interview not found (or not yours, same answer as HTTP).
 - Audio for a sentence is always `audio_meta` **then** one binary frame. A WebSocket keeps order, so the client pairs them without IDs.
 - If TTS fails mid-reply, the server sends `error {code: "tts_unavailable", text: <the part not spoken yet>}`. The browser speaks that text with its built-in voice (`speechSynthesis`), so the interview keeps going (D26).
+
+**Phase 8 protocol change: interviewer speech is sent sentence by sentence.** A streamed reply's full text isn't known up front, and TTS can fail mid-reply. So the interviewer's `transcript`, `audio_meta` and `error tts_unavailable` messages are replaced by:
+
+| Direction | Type | Payload | Meaning |
+|---|---|---|---|
+| server → client | `reply_start` | `{}` | A new interviewer message begins (new caption bubble) |
+| server → client | `sentence` | `{seq, text, audio}` | Append `text` to the bubble. If `audio` is true, the next binary frame is its MP3; otherwise the browser speaks it (D26) |
+| server → client | `ready` | `{interview_id, resumable}` | `resumable: true` when reconnecting to an interview in progress |
+| server → client | `ended` | `{interview_id}` | Interview over; report being generated (phase 9) |
+| client → server | `end` | `{}` | Candidate ends early: closing line, then `ended` |
+
+Candidate captions stay `transcript {role: "candidate", text}`. Close code `4409`: the interview was opened in another tab.
 
 **Rules (phase 7)**
 - The server accepts a binary answer **only after its own `turn_end`**. An answer at any other time gets `error {code: "not_your_turn"}`.
@@ -451,12 +493,18 @@ interviews        (id, user_id → auth.users, analysis_id → analyses (same us
                    status: created → in_progress → evaluating → completed | failed
 ```
 
+**Phase 8:**
+
+```
+interviews        + plan jsonb (the questions), + position jsonb (where we are)
+interview_turns   (id, user_id, interview_id → interviews (same user), seq, role [interviewer|candidate],
+                   question_index, text, audio_seconds, stt_ms, llm_ms, tts_ms, segments jsonb, created_at)
+                   unique (interview_id, seq)
+```
+
 **Later phases (planned):**
 
 ```
-interviews        + plan jsonb (phase 8)
-interview_turns   (id, interview_id, seq, role [interviewer|candidate], phase,
-                   text, audio_seconds, stt_ms, llm_ms, tts_ms, created_at)
 evaluations       (id, interview_id, overall_score, scores jsonb, metrics jsonb,
                    strengths jsonb, improvements jsonb, created_at)
 jobs              (id, kind, payload jsonb, status, attempts, run_after, created_at)

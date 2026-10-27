@@ -283,6 +283,8 @@ export interface components {
              * Format: date-time
              */
             created_at: string;
+            /** Started At */
+            started_at: string | null;
             /** Candidate Name */
             candidate_name: string | null;
             /** Job Title */

@@ -6,6 +6,7 @@ tests can pass a fake and we can swap providers without touching callers.
 
 import json
 from functools import lru_cache
+from collections.abc import AsyncIterator
 from typing import Literal, Protocol, TypeVar
 
 import groq
@@ -31,6 +32,12 @@ class LLMBusyError(LLMError):
 
 class LLMClient(Protocol):
     async def complete_json(self, system: str, user: str, schema: type[T]) -> T: ...
+
+
+class TextStreamer(Protocol):
+    def stream_text(self, system: str, user: str) -> AsyncIterator[str]:
+        """Spoken-reply text as it's generated, chunk by chunk."""
+        ...
 
 
 def create_groq(api_key: str) -> groq.AsyncGroq:
@@ -113,3 +120,28 @@ class GroqClient:
                 ]
 
         raise LLMError(f"Model did not return a valid {schema.__name__}") from last_error
+
+    async def stream_text(self, system: str, user: str) -> AsyncIterator[str]:
+        """Stream a free-text reply. Used live, where first-sentence latency matters (D8)."""
+        messages = [{"role": "system", "content": system}, {"role": "user", "content": user}]
+        try:
+            stream = await self._client.chat.completions.create(
+                model=self._model,
+                messages=messages,
+                stream=True,
+                temperature=0.6,  # spoken replies should vary a little, unlike extraction
+                **self._extra,
+            )
+        except groq.RateLimitError as e:
+            raise LLMBusyError(_retry_after(e)) from e
+        except groq.APIError as e:
+            raise LLMError(f"Groq request failed: {e}") from e
+
+        try:
+            async for chunk in stream:
+                # gpt-oss streams its reasoning in a separate field; only `content` is spoken.
+                delta = chunk.choices[0].delta.content if chunk.choices else None
+                if delta:
+                    yield delta
+        except groq.APIError as e:
+            raise LLMError(f"Groq stream failed: {e}") from e

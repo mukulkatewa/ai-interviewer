@@ -20,6 +20,9 @@ class Settings(BaseSettings):
     # JD extraction: simpler task; a different model spreads the load.
     groq_jd_model: str = "openai/gpt-oss-20b"
     groq_jd_effort: ReasoningEffort = "low"
+    # Live interview turns: the fastest first sentence, on its own rate limit (D7, D22).
+    groq_live_model: str = "openai/gpt-oss-20b"
+    groq_live_effort: ReasoningEffort = "low"
     # Advice for the user: not live, so spend more thinking on quality (D13).
     groq_analysis_model: str = "openai/gpt-oss-120b"
     groq_analysis_effort: ReasoningEffort = "medium"
@@ -39,6 +42,8 @@ class Settings(BaseSettings):
     tts_timeout_s: float = 15.0
     # Speech-to-text (benchmarked in docs/benchmarks/speech-2026-10-27.md).
     groq_stt_model: str = "whisper-large-v3-turbo"
+    # Interview length cap (D12): checked every turn; past it, the interview wraps up.
+    interview_max_minutes: float = 20.0
     # How long a new interview WebSocket may stay open without sending `auth`.
     ws_auth_timeout_s: float = 10.0
 
