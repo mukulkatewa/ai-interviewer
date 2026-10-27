@@ -56,7 +56,7 @@ After changing API models, run `npm run gen:api` to regenerate the TypeScript ty
 
 **Supabase login setup** (dashboard → Authentication): add `http://localhost:3000/auth/callback` to *Redirect URLs*; optionally enable *Google*.
 
-**Migrations:** `npx supabase@2 db push --db-url "$DATABASE_URL"`
+**Migrations:** `bash scripts/db-push.sh` (`--dry-run` first to see what would change)
 
 ## Tests
 

@@ -11,7 +11,8 @@ Vercel (web)  ──►  Oracle Cloud VM: Caddy ─► API (+ job worker) ─►
 
 1. Apply all migrations from your machine:
    ```bash
-   npx supabase@2 db push --db-url "$(grep '^DATABASE_URL=' apps/api/.env | cut -d= -f2-)"
+   bash scripts/db-push.sh --dry-run   # lists what would be applied, changes nothing
+   bash scripts/db-push.sh             # applies it (asks for confirmation)
    ```
 2. Authentication → URL Configuration:
    - **Site URL**: your Vercel URL, e.g. `https://ai-interviewer.vercel.app`
