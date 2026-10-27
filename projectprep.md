@@ -408,7 +408,7 @@ Code: `apps/api/bench/speech.py`. Results: `docs/benchmarks/`.
 1. Save the candidate turn (text, audio seconds, STT ms, Whisper segments for phase 9).
 2. **Immediately** send a cached acknowledgement ("Got it." / "Okay." / …), which costs 0 ms of TTS (D23).
 3. **Code** decides what's allowed (D29): a follow-up only if this question hasn't used its 1 follow-up and time is left; otherwise move on.
-4. The live model (`gpt-oss-20b`) streams the reply. Its first line is `ACTION: FOLLOW_UP` or `ACTION: NEXT`, then the spoken text. If it picks something that isn't allowed, or the line is unreadable, code overrides it.
+4. The live model (`gpt-oss-20b`) streams the reply. Its first line is `ACTION: FOLLOW_UP` or `ACTION: NEXT`. For FOLLOW_UP it writes the follow-up question. For NEXT it writes only a one-sentence reaction, and **code appends the next planned question word for word**, so the model can never skip or garble it (D29). If it picks something that isn't allowed, or the line is unreadable, code overrides it.
 5. Sentences go to TTS **while the model is still writing** (a producer/consumer queue), each sent as soon as its audio is ready.
 6. Save the interviewer turn (text, `llm_ms` to first sentence, `tts_ms` to first audio) and the new position. Send `turn_end`.
 
