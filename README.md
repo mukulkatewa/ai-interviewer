@@ -9,6 +9,8 @@ Free, voice-based mock interviews personalized to your resume and a job descript
 
 Everything runs on free tiers: Groq (LLM + Whisper), self-hosted Kokoro TTS, Supabase, Vercel, an Oracle Cloud free VM.
 
+**In the interview room:** a ring that moves with the real audio level, live captions and transcript, a progress bar, and light and dark themes. You can end it by clicking **End interview** or by saying so ("I want to stop the interview"), and either works at any moment, even while the interviewer is speaking.
+
 **Design decisions and architecture: [`projectprep.md`](projectprep.md)** (D1–D32, each with what was chosen, why, and what was given up).
 Measured speech latency: [`docs/benchmarks/`](docs/benchmarks/). Deploying: [`docs/deploy.md`](docs/deploy.md). Launching: [`docs/launch.md`](docs/launch.md).
 
@@ -21,6 +23,15 @@ Browser (Next.js 16) ── HTTPS ──► FastAPI ──► Groq: gpt-oss-120b
                                     ├─ Postgres job queue (outbox + SKIP LOCKED) for reports
                                     └─► Supabase Postgres (RLS-locked) + Auth (JWT verified locally)
 ```
+
+## Roadmap
+
+Planned, **not implemented**. Nothing below is part of the architecture today:
+
+- **LangGraph** to run the interview flow (checkpointing, a drawn graph) and **LangChain** as a provider layer. Today the flow is plain Python, on purpose: see decision D35 in [`projectprep.md`](projectprep.md) for why it was evaluated and what would change that.
+- A fallback speech-to-text (`faster-whisper` on the VM) behind the existing `STTProvider` interface, for when Groq is at its free limit.
+- A short wait-and-retry when the free model limit is hit, instead of failing straight away.
+- Interruptions (talking over the interviewer), and more Indian languages with the AI4Bharat models.
 
 ## Repository
 

@@ -257,6 +257,17 @@ Each decision: **what we chose → why → what we gave up.**
 - **Voice stop is plain code** (`app/interview/intent.py`), not another model call: instant, free, testable. It only fires on an explicit request ("stop the interview", "I'm done", "let's wrap up", "I need to go") and never on a technical answer ("we stop the container before deleting the volume"). The rule is precision over recall: someone who wants out can always press End.
 - **Tests:** 36 phrase cases (17 stops, 19 technical answers that must not stop). Removing the "must end right after the command" rule fails 7 of them.
 
+### D34. The interview room is a stage, and the microphone is opened once, on the click
+- **Design (the "one memorable thing"):** everything except the room stays quiet: porcelain surfaces, ink text, Bricolage Grotesque headings with Instrument Sans body, light and dark themes. The room is a dark stage with one ring that moves with the **real audio level**: blue while the interviewer speaks (an `AnalyserNode` on the playback), amber and following your voice on your turn (the VAD's speech probability), a slow swirl while the AI is thinking. Color is information, not decoration. The level is written to a CSS variable each animation frame, so React never re-renders 60 times a second. `prefers-reduced-motion` keeps color and labels and stops the movement.
+- **Found while testing:** the VAD library opens the microphone on the *first listen*, not at the Start click. The permission prompt appeared ~15 s into the interview, and the library asked the browser for the microphone again every turn. Now `AnswerRecorder.create` starts and pauses the VAD on the click (one prompt, at Start), keeps one stream (pausing disables the track instead of stopping it), and always releases it on destroy. `destroy()` is safe at any moment: the library's own throws when it was never started.
+- **Ending is instant on the client too:** "End interview" cuts audio at once (`AudioQueue.stop()` drops everything queued), ignores a stale "your turn", and after confirming shows the result without waiting for the goodbye. The goodbye for an early end is one short sentence (3.4 s instead of 10.4 s measured).
+- **Tests:** a Playwright regression test for the first-click end; browser checks that the microphone is requested once, within 4 s of Start, and released after.
+
+### D35. LangGraph and LangChain: evaluated, not adopted
+- **What they would give us:** LangGraph describes a flow as nodes and edges, with checkpointing and a drawn graph. LangChain gives one interface over model providers.
+- **Why we didn't:** the interview flow is already a small explicit state machine in plain Python (`allowed_actions`, `advance`, a saved `position`), with every rule covered by tests. The speed work (D8, D23) streams sentences into speech while the model is still writing, and a node-by-node runner would fight that. The provider interface (D9) already exists as 20 lines. A framework here is more code and more to debug for no new capability.
+- **When to revisit:** branching multi-agent flows, long-running runs that must pause and resume across processes, or several model providers in rotation. Until then this entry is the honest record: it is a roadmap item in the README, **not** part of the architecture.
+
 ---
 
 ## 5. How each feature works (step by step)
