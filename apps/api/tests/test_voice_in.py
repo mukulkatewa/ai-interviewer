@@ -114,7 +114,10 @@ def test_vocabulary_is_a_natural_sentence_with_must_haves_first():
         experience=[Experience(company="Flipkart", role="Intern", technologies=["MongoDB"])],
         projects=[Project(name="DevChat")],
     )
-    job = JobProfile(company="Razorpay", must_have=[SkillRequirement(skill="Python", alternatives=["Go"]), SkillRequirement(skill="Redis")])
+    job = JobProfile(
+        company="Razorpay",
+        must_have=[SkillRequirement(skill="Python", alternatives=["Go"]), SkillRequirement(skill="Redis")],
+    )
 
     prompt = vocabulary_prompt(resume, job)
 

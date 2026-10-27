@@ -1,12 +1,9 @@
 """Stage 2 of resume parsing: plain text -> ResumeProfile (projectprep.md, D5)."""
 
 from collections.abc import Callable, Hashable
-from typing import TypeVar
 
 from app.llm import LLMClient
 from app.resume.schema import ResumeProfile
-
-T = TypeVar("T")
 
 # A dense 2-page resume is ~6-8k characters. The cap keeps a malicious or
 # broken upload from burning the free-tier token quota.
@@ -26,7 +23,7 @@ def _key(*parts: str | None) -> tuple[str, ...]:
     return tuple(" ".join((p or "").split()).casefold() for p in parts)
 
 
-def _unique(items: list[T], key: Callable[[T], Hashable]) -> list[T]:
+def _unique[T](items: list[T], key: Callable[[T], Hashable]) -> list[T]:
     """First occurrence wins; order is preserved."""
     seen: set[Hashable] = set()
     return [x for x in items if not (key(x) in seen or seen.add(key(x)))]

@@ -46,9 +46,7 @@ def drop_invented_bullets(insights: Insights, resume: ResumeProfile) -> Insights
     return insights.model_copy(update={"bullet_rewrites": kept[:MAX_REWRITES]})
 
 
-async def write_insights(
-    resume: ResumeProfile, job: JobProfile, match: MatchResult, llm: LLMClient
-) -> Insights:
+async def write_insights(resume: ResumeProfile, job: JobProfile, match: MatchResult, llm: LLMClient) -> Insights:
     user = (
         f"<resume>\n{resume.model_dump_json(exclude_none=True)}\n</resume>\n"
         f"<job>\n{job.model_dump_json(exclude_none=True)}\n</job>\n"

@@ -50,7 +50,9 @@ async def complete(db: asyncpg.Pool, job_id: UUID) -> None:
     await db.execute("update jobs set status = 'done', updated_at = now() where id = $1", job_id)
 
 
-async def retry_later(db: asyncpg.Pool, job_id: UUID, delay_s: float, error: str, *, count_attempt: bool = True) -> None:
+async def retry_later(
+    db: asyncpg.Pool, job_id: UUID, delay_s: float, error: str, *, count_attempt: bool = True
+) -> None:
     """Back to the queue after `delay_s`. A rate limit isn't the job's fault: it doesn't use up an attempt."""
     await db.execute(
         """
