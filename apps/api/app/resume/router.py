@@ -3,6 +3,7 @@ from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Response, UploadFile
 
+from app import limits
 from app.auth import AuthUser
 from app.config import Settings, get_settings
 from app.db import Db
@@ -26,6 +27,7 @@ async def upload_resume(
     settings: Annotated[Settings, Depends(get_settings)],
     llm: Annotated[LLMClient, Depends(get_resume_llm)],
 ) -> repo.StoredResume:
+    await limits.enforce(db, user.id, "resumes", settings.limit_resumes_per_day)
     # Read at most one byte past the limit: enough to detect "too big"
     # without loading an arbitrarily large upload into memory.
     data = await file.read(settings.max_upload_bytes + 1)

@@ -44,6 +44,11 @@ class Settings(BaseSettings):
     groq_stt_model: str = "whisper-large-v3-turbo"
     # Interview length cap (D12): checked every turn; past it, the interview wraps up.
     interview_max_minutes: float = 20.0
+    # Per-user limits per rolling 24 h (D12, D32). Checked before any LLM spend.
+    limit_resumes_per_day: int = 10
+    limit_analyses_per_day: int = 10
+    limit_interviews_per_day: int = 3
+    log_level: str = "INFO"
     # Run the background job worker in this process (D31). Off in tests, which drive it directly.
     run_jobs: bool = True
     # How long a new interview WebSocket may stay open without sending `auth`.

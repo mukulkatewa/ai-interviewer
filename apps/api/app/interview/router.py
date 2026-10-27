@@ -4,7 +4,9 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
+from app import limits
 from app.auth import AuthUser
+from app.config import get_settings
 from app.db import Db
 from app.deps import get_analysis_llm
 from app.interview import repo
@@ -26,6 +28,7 @@ async def create_interview(
     db: Db,
     llm: Annotated[LLMClient, Depends(get_analysis_llm)],
 ) -> repo.Interview:
+    await limits.enforce(db, user.id, "interviews", get_settings().limit_interviews_per_day)
     inputs = await repo.get_analysis_inputs(db, user.id, body.analysis_id)
     if inputs is None:
         raise HTTPException(404, "Analysis not found")

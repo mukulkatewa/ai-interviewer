@@ -4,11 +4,13 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 
+from app import limits
 from app.analysis import repo
 from app.analysis.insights import write_insights
 from app.analysis.matching import match_resume
 from app.analysis.schema import AnalysisReport
 from app.auth import AuthUser
+from app.config import get_settings
 from app.db import Db
 from app.deps import get_analysis_llm, get_jd_llm
 from app.jd.structure import structure_jd
@@ -31,6 +33,7 @@ async def create_analysis(
     jd_llm: Annotated[LLMClient, Depends(get_jd_llm)],
     analysis_llm: Annotated[LLMClient, Depends(get_analysis_llm)],
 ) -> repo.StoredAnalysis:
+    await limits.enforce(db, user.id, "analyses", get_settings().limit_analyses_per_day)
     # Ownership check before any LLM spend: someone else's resume is a 404.
     resume = await resume_repo.get(db, user.id, body.resume_id)
     if resume is None:
