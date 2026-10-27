@@ -4,6 +4,7 @@ import Link from "next/link";
 import { ScoreBadge } from "@/components/score-badge";
 import { getServerApi, unwrap } from "@/lib/api/server";
 import { formatDate } from "@/lib/format";
+import { DeleteMyData } from "./delete-my-data";
 import { UploadResume } from "./upload-resume";
 
 export const metadata: Metadata = { title: "Dashboard" };
@@ -105,6 +106,8 @@ export default async function DashboardPage() {
           </ul>
         )}
       </section>
+
+      <DeleteMyData />
     </div>
   );
 }

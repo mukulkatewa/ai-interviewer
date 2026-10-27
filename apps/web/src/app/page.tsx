@@ -1,7 +1,6 @@
-import Link from "next/link";
 
+import { ButtonLink } from "@/components/button-link";
 import { Logo } from "@/components/logo";
-import { Button } from "@/components/ui/button";
 
 const STEPS = [
   {
@@ -23,9 +22,9 @@ export default function LandingPage() {
     <div className="flex flex-1 flex-col">
       <header className="mx-auto flex w-full max-w-5xl items-center justify-between px-4 py-5">
         <Logo />
-        <Button variant="ghost" nativeButton={false} render={<Link href="/login" />}>
+        <ButtonLink variant="ghost" href="/login">
           Sign in
-        </Button>
+        </ButtonLink>
       </header>
 
       <main className="mx-auto flex w-full max-w-5xl flex-1 flex-col px-4">
@@ -38,9 +37,9 @@ export default function LandingPage() {
             Questions built from your resume and the job description, and feedback that quotes your own answers.
           </p>
           <div className="mt-8 flex gap-3">
-            <Button size="lg" className="h-11 px-5" nativeButton={false} render={<Link href="/login" />}>
+            <ButtonLink size="lg" className="h-11 px-5" href="/login">
               Get started
-            </Button>
+            </ButtonLink>
           </div>
         </section>
 

@@ -147,6 +147,29 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/me/data": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * Delete My Data
+         * @description Delete everything this user created. The Supabase login itself stays (section 8).
+         *
+         *     Deleting resumes and job descriptions cascades through the composite FKs to
+         *     analyses -> interviews -> turns and evaluations, so two deletes cover all of it.
+         */
+        delete: operations["delete_my_data_me_data_delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/health": {
         parameters: {
             query?: never;
@@ -977,6 +1000,24 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["HTTPValidationError"];
                 };
+            };
+        };
+    };
+    delete_my_data_me_data_delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
         };
     };

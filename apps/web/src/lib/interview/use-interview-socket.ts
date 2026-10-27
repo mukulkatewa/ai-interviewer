@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 
+import { track } from "@/lib/analytics";
 import { env } from "@/lib/env";
 import { createClient } from "@/lib/supabase/client";
 import { AnswerRecorder } from "./answer-recorder";
@@ -74,6 +75,7 @@ export function useInterviewSocket(interviewId: string) {
           break;
         case "ended":
           ended.current = true;
+          track("interview_completed");
           await queue.idle(); // let the closing line finish
           if (disposed) return;
           setStatus("ended");
@@ -149,6 +151,7 @@ export function useInterviewSocket(interviewId: string) {
     setNotice(null);
     setStatus("speaking");
     ws.current?.send(JSON.stringify({ type: "start" }));
+    track("interview_started");
   }, []);
 
   /** "Done answering": submit now instead of waiting for silence (D27). */
