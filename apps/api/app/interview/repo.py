@@ -8,6 +8,7 @@ import asyncpg
 from pydantic import BaseModel
 
 from app.analysis.schema import MatchResult
+from app.interview.plan import InterviewPlan
 from app.jd.schema import JobProfile
 from app.resume.schema import ResumeProfile
 
@@ -37,17 +38,45 @@ _SELECT = """
 """
 
 
-async def create(db: asyncpg.Pool, user_id: UUID, analysis_id: UUID) -> Interview | None:
+class AnalysisInputs(BaseModel):
+    """What an interview is planned from."""
+
+    resume: ResumeProfile
+    job: JobProfile
+    match: MatchResult
+
+
+async def get_analysis_inputs(db: asyncpg.Pool, user_id: UUID, analysis_id: UUID) -> AnalysisInputs | None:
+    row = await db.fetchrow(
+        """
+        select r.profile as resume, j.profile as job, a.match
+        from analyses a
+        join resumes r on r.id = a.resume_id
+        join job_descriptions j on j.id = a.job_description_id
+        where a.id = $1 and a.user_id = $2
+        """,
+        analysis_id, user_id,
+    )  # fmt: skip
+    if row is None:
+        return None
+    return AnalysisInputs(
+        resume=ResumeProfile.model_validate_json(row["resume"]),
+        job=JobProfile.model_validate_json(row["job"]),
+        match=MatchResult.model_validate_json(row["match"]),
+    )
+
+
+async def create(db: asyncpg.Pool, user_id: UUID, analysis_id: UUID, plan: InterviewPlan) -> Interview | None:
     """None if the analysis doesn't exist or isn't this user's."""
     # INSERT ... SELECT: the ownership check and the insert are one statement,
     # so there's no gap between "checked" and "inserted".
     interview_id = await db.fetchval(
         """
-        insert into interviews (user_id, analysis_id)
-        select $1, id from analyses where id = $2 and user_id = $1
+        insert into interviews (user_id, analysis_id, plan)
+        select $1, id, $3 from analyses where id = $2 and user_id = $1
         returning id
         """,
-        user_id, analysis_id,
+        user_id, analysis_id, plan.model_dump_json(),
     )  # fmt: skip
     return await get(db, user_id, interview_id) if interview_id else None
 

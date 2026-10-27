@@ -7,6 +7,7 @@ from app.analysis.schema import Insights
 from app.auth import CurrentUser, InvalidToken, get_token_verifier
 from app.config import get_settings
 from app.deps import get_stt, get_tts
+from app.interview.plan import InterviewPlan, PlannedQuestion
 from app.jd.schema import JobProfile, SkillRequirement
 from app.main import app
 from app.resume.schema import ResumeProfile
@@ -14,6 +15,14 @@ from app.speech.stt import STTBusyError, Transcript
 from app.speech.tts import TTSError
 from tests.conftest import RESUME_TEXT, USER_A, USER_B, make_pdf
 from tests.test_voice_in import make_wav
+
+PLAN = InterviewPlan(
+    questions=[
+        PlannedQuestion(phase="resume_deep_dive", question="How did you build the Acme service?", focus="ownership"),
+        PlannedQuestion(phase="role_skills", question="How would you design a payments API?", focus="API design"),
+        PlannedQuestion(phase="behavioral", question="Tell me about a conflict you resolved.", focus="STAR"),
+    ]
+)
 
 # Tokens the fake verifier accepts, and whose user they are.
 TOKENS = {"token-a": USER_A, "token-b": USER_B}
@@ -79,6 +88,7 @@ def analysis_id(client, fake_llm) -> str:
         title="Backend Engineer", company="Razorpay", must_have=[SkillRequirement(skill="Python")]
     )
     fake_llm.results[Insights] = Insights(summary="Good fit")
+    fake_llm.results[InterviewPlan] = PLAN
     resume_id = client.post("/resumes", files={"file": ("r.pdf", make_pdf(RESUME_TEXT), "application/pdf")}).json()["id"]
     jd = "Backend Engineer at Razorpay. Must have Python and REST APIs experience. " * 2
     return client.post("/analyses", json={"resume_id": resume_id, "job_description": jd}).json()["id"]
@@ -104,6 +114,16 @@ def test_create_interview_from_own_analysis(client, analysis_id):
         "Razorpay",
     )
     assert client.get(f"/interviews/{body['id']}").json() == body
+    assert "plan" not in body  # candidates must not see the questions in advance
+
+
+def test_create_interview_plans_from_resume_job_and_gaps(client, analysis_id, fake_llm):
+    client.post("/interviews", json={"analysis_id": analysis_id})
+
+    call = fake_llm.calls[-1]
+    assert call["schema"] is InterviewPlan
+    assert "Rahul Sharma" in call["user"] and "Razorpay" in call["user"]
+    assert "<gaps>none</gaps>" in call["user"]  # Python is listed on the resume, so no gap
 
 
 def test_cannot_use_or_see_other_users_interviews(client, analysis_id, interview_id, login):
