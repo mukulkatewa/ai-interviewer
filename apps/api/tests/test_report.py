@@ -3,6 +3,7 @@
 import pytest
 
 from app.interview.plan import InterviewPlan
+from app.jd.schema import JobProfile
 from app.jobs import queue
 from app.jobs.worker import Worker
 from app.llm import LLMBusyError
@@ -12,7 +13,7 @@ from app.report.metrics import speaking_metrics
 from app.report.schema import CompetencyScore, Evaluation, QuestionFeedback
 from app.report.service import report_handlers
 from tests.conftest import USER_B
-from tests.test_interviews import analysis_id, answer, connect, db_rows, fakes, interview_id, read_reply, start  # noqa: F401 (fixtures)
+from tests.interview_fixtures import answer, connect, db_rows, read_reply, start
 
 # --- unit: code-owned parts of the report ---------------------------------------
 
@@ -56,6 +57,20 @@ def test_speaking_metrics():
     assert metrics.filler_per_100_words == round(100 * 2 / 19, 1)
 
 
+async def test_duplicate_competencies_count_once(fake_llm):
+    fake_llm.results[Evaluation] = Evaluation(
+        summary="s",
+        competencies=[c("technical_depth", 5), c("communication", 5), c("technical_depth", 1)],
+    )
+    report = await build_report(
+        InterviewPlan(questions=[]), JobProfile(), [], [("a b c", 1.0), ("d e f", 1.0)], fake_llm
+    )
+
+    assert [x.competency for x in report.competencies] == ["technical_depth", "communication"]
+    assert report.competencies[0].score == 5  # first one wins
+    assert report.overall_score == 100
+
+
 async def test_too_short_interview_skips_the_model(fake_llm):
     report = await build_report(InterviewPlan(questions=[]), None, [], [("Hi.", 1.0)], fake_llm)
     assert report.insufficient and report.overall_score is None
@@ -67,7 +82,12 @@ async def test_too_short_interview_skips_the_model(fake_llm):
 EVALUATION = Evaluation(
     summary="Clear and specific.",
     competencies=[
-        CompetencyScore(competency="technical_depth", score=4, rationale="Specific.", evidence=["built a FastAPI service at Acme", "I invented this"]),
+        CompetencyScore(
+            competency="technical_depth",
+            score=4,
+            rationale="Specific.",
+            evidence=["built a FastAPI service at Acme", "I invented this"],
+        ),
         CompetencyScore(competency="communication", score=3, rationale="Clear."),
         CompetencyScore(competency="behavioral", score=None, rationale="Not enough evidence."),
     ],

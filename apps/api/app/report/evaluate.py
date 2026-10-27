@@ -86,10 +86,13 @@ async def build_report(plan: InterviewPlan, job: JobProfile, turns: list[Turn],
     evaluation = await llm.complete_json(system=SYSTEM_PROMPT, user=user, schema=Evaluation)
 
     candidate_text = " ".join(text for text, _ in answers)
+    # One entry per competency, first wins: a duplicate would be weighted twice in the score.
+    unique: dict[Competency, CompetencyScore] = {}
+    for c in evaluation.competencies:
+        if c.competency in WEIGHTS:
+            unique.setdefault(c.competency, c)
     competencies = [
-        c.model_copy(update={"evidence": verified_evidence(c.evidence, candidate_text)})
-        for c in evaluation.competencies
-        if c.competency in WEIGHTS
+        c.model_copy(update={"evidence": verified_evidence(c.evidence, candidate_text)}) for c in unique.values()
     ]
     return Report(
         overall_score=overall_score(competencies),
