@@ -37,7 +37,8 @@ def closing(interview: Interview) -> str:
 
 
 def ended_early(interview: Interview) -> str:
-    return f"No problem, let's stop here. {closing(interview)}"
+    # Short on purpose: the person just asked to leave, so don't make them sit through a long goodbye.
+    return "No problem, let's stop here. Your feedback report will be ready in about a minute."
 
 
 def welcome_back(last_question: str) -> str:

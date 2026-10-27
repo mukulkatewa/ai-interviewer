@@ -10,7 +10,7 @@ import { AudioQueue } from "./audio-queue";
 
 // Protocol: projectprep.md, section 6 (phase 8: interviewer speech arrives sentence by sentence).
 type ServerMessage =
-  | { type: "ready"; interview_id: string; resumable: boolean }
+  | { type: "ready"; interview_id: string; resumable: boolean; total: number }
   | { type: "reply_start" }
   | { type: "sentence"; seq: number; text: string; audio: boolean }
   | { type: "transcript"; role: "candidate"; text: string }
@@ -18,13 +18,13 @@ type ServerMessage =
   | { type: "ended"; interview_id: string }
   | { type: "error"; code: string; message: string };
 
-export type Status = "connecting" | "ready" | "speaking" | "listening" | "thinking" | "ended" | "failed";
+export type Status = "connecting" | "ready" | "speaking" | "listening" | "thinking" | "ending" | "ended" | "failed";
 export type Caption = { role: "interviewer" | "candidate"; text: string };
 
 const CLOSE_REASONS: Record<number, string> = {
   4401: "Your session expired. Reload the page to sign in again.",
   4404: "This interview doesn't exist or belongs to another account.",
-  4409: "This interview was opened in another tab.",
+  4409: "This interview is open in another tab. Close that one to continue here.",
   1013: "The server is busy. Try again in a minute.",
 };
 
@@ -35,10 +35,15 @@ export function useInterviewSocket(interviewId: string) {
   const [problem, setProblem] = useState<string | null>(null); // fatal: shown instead of status
   const [notice, setNotice] = useState<string | null>(null); // recoverable: "didn't catch that"
   const [userSpeaking, setUserSpeaking] = useState(false);
+  const [question, setQuestion] = useState(0); // 0 warm-up, 1..total planned, total + 1 wrap-up
+  const [total, setTotal] = useState(0);
+  const [startedAt, setStartedAt] = useState<number | null>(null);
   const ws = useRef<WebSocket | null>(null);
   const audio = useRef<AudioQueue>(new AudioQueue());
   const recorder = useRef<AnswerRecorder | null>(null);
+  const micLevel = useRef(0);
   const ended = useRef(false);
+  const ending = useRef(false); // the candidate asked to stop: ignore anything that belongs to the old turn
 
   useEffect(() => {
     let socket: WebSocket | null = null;
@@ -49,10 +54,11 @@ export function useInterviewSocket(interviewId: string) {
       switch (message.type) {
         case "ready":
           setResumable(message.resumable);
+          setTotal(message.total);
           setStatus("ready");
           break;
         case "reply_start":
-          setStatus("speaking");
+          if (!ending.current) setStatus("speaking");
           setCaptions((c) => [...c, { role: "interviewer", text: "" }]);
           break;
         case "sentence":
@@ -67,16 +73,21 @@ export function useInterviewSocket(interviewId: string) {
           setCaptions((c) => [...c, { role: "candidate", text: message.text }]);
           break;
         case "turn_end":
+          // The candidate already asked to stop: this belongs to the turn we cancelled.
+          if (ending.current) return;
+          setQuestion(message.question);
           // Arrives before playback ends: start listening only after, or the mic hears the interviewer (D28).
           await queue.idle();
-          if (disposed) return;
+          if (disposed || ending.current) return;
           setStatus("listening");
           await recorder.current?.listen();
           break;
         case "ended":
           ended.current = true;
           track("interview_completed");
-          await queue.idle(); // let the closing line finish
+          // A natural ending lets the closing line finish. After "End interview" the candidate has
+          // already chosen to leave: show the result straight away.
+          if (!ending.current) await queue.idle();
           if (disposed) return;
           setStatus("ended");
           void recorder.current?.destroy(); // release the microphone
@@ -133,6 +144,9 @@ export function useInterviewSocket(interviewId: string) {
     try {
       recorder.current = await AnswerRecorder.create({
         onSpeaking: setUserSpeaking,
+        onLevel: (level) => {
+          micLevel.current = level;
+        },
         onAnswer: (wav) => {
           setUserSpeaking(false);
           setNotice(null);
@@ -150,6 +164,7 @@ export function useInterviewSocket(interviewId: string) {
     }
     setNotice(null);
     setStatus("speaking");
+    setStartedAt((t) => t ?? Date.now());
     ws.current?.send(JSON.stringify({ type: "start" }));
     track("interview_started");
   }, []);
@@ -157,13 +172,40 @@ export function useInterviewSocket(interviewId: string) {
   /** "Done answering": submit now instead of waiting for silence (D27). */
   const finishAnswer = useCallback(() => void recorder.current?.done(), []);
 
-  /** "End interview": stop early; the server says a closing line and generates the report. */
+  /** "End interview": cut the sound, stop listening, and ask the server to wrap up (D33). */
   const endInterview = useCallback(async () => {
+    ending.current = true;
+    setStatus("ending");
+    setNotice(null);
+    ws.current?.send(JSON.stringify({ type: "end" })); // first: the server cancels what it's saying
+    await audio.current.stop(); // silence at once, not after the sentence finishes
+    await audio.current.unlock(); // a fresh context for the closing line (this click is the user gesture)
     await recorder.current?.destroy();
     recorder.current = null;
-    setStatus("speaking");
-    ws.current?.send(JSON.stringify({ type: "end" }));
   }, []);
 
-  return { status, resumable, captions, problem, notice, userSpeaking, start, finishAnswer, endInterview };
+  /** Loudness for the voice orb: the interviewer's audio while it speaks, the microphone while you do. */
+  const getLevel = useCallback(
+    () => {
+      const voice = audio.current.level();
+      return voice > 0.02 ? voice : micLevel.current;
+    },
+    [],
+  );
+
+  return {
+    status,
+    resumable,
+    captions,
+    problem,
+    notice,
+    userSpeaking,
+    question,
+    total,
+    startedAt,
+    start,
+    finishAnswer,
+    endInterview,
+    getLevel,
+  };
 }

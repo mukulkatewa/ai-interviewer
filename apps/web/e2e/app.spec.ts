@@ -55,6 +55,26 @@ test("other users' data is invisible", async ({ page, context }) => {
   }
 });
 
+test("End interview works on the first click, even while the interviewer is speaking", async ({ page, context }) => {
+  // Regression: the server used to read "end" only after the interviewer finished speaking, and a stale
+  // "your turn" then put the screen back into listening mode, so the first click looked broken (D33).
+  const { analysisId } = await createAnalysis(user);
+  await signIn(context, user);
+
+  await page.goto(`/analyses/${analysisId}`);
+  await page.getByRole("button", { name: "Start mock interview" }).click();
+  await expect(page).toHaveURL(/\/interviews\/[^/]+$/, { timeout: 60_000 });
+  await page.getByRole("button", { name: "Start interview" }).click();
+  await expect(page.getByText("Interviewer is speaking")).toBeVisible({ timeout: 30_000 });
+
+  page.once("dialog", (d) => void d.accept());
+  await page.getByRole("button", { name: "End interview" }).click();
+  await expect(page.getByText("Interview complete")).toBeVisible({ timeout: 15_000 });
+
+  await page.waitForTimeout(4_000); // a stale "your turn" would have reappeared by now
+  await expect(page.getByRole("button", { name: "Done answering" })).toBeHidden();
+});
+
 test("full voice interview through to the feedback report @slow", async ({ page, context }) => {
   test.setTimeout(20 * 60_000); // ~10 planned turns, each spoken by Kokoro and answered by the fake mic
   const { analysisId } = await createAnalysis(user);

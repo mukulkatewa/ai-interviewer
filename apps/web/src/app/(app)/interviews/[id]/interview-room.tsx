@@ -13,6 +13,7 @@ const STATUS_TEXT: Record<Status, string> = {
   speaking: "Interviewer is speaking…",
   listening: "Your turn. Take your time, or press Done when you've finished.",
   thinking: "One moment…",
+  ending: "Wrapping up…",
   ended: "",
   failed: "",
 };
