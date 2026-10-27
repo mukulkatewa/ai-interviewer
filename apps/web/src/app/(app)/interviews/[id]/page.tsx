@@ -1,4 +1,6 @@
+import { ArrowLeftIcon } from "lucide-react";
 import type { Metadata } from "next";
+import Link from "next/link";
 
 import { ButtonLink } from "@/components/button-link";
 import { getServerApi, unwrap } from "@/lib/api/server";
@@ -12,21 +14,27 @@ export default async function InterviewPage({ params }: PageProps<"/interviews/[
   const interview = unwrap(await api.GET("/interviews/{interview_id}", { params: { path: { interview_id: id } } }));
 
   return (
-    <div className="space-y-6">
-      <header>
-        <h1 className="text-2xl font-semibold tracking-tight">Mock interview</h1>
-        <p className="text-muted-foreground">
-          {[interview.job_title ?? "Untitled role", interview.company].filter(Boolean).join(" · ")}
-        </p>
-      </header>
+    <div className="space-y-4">
+      <Link
+        href="/dashboard"
+        className="inline-flex items-center gap-1.5 text-sm text-muted-foreground transition-colors hover:text-foreground"
+      >
+        <ArrowLeftIcon className="size-4" aria-hidden />
+        Dashboard
+      </Link>
 
       {interview.status === "created" || interview.status === "in_progress" ? (
         // in_progress: the room offers "Resume" and the interviewer repeats the last question.
-        <InterviewRoom interviewId={interview.id} />
+        <InterviewRoom
+          interviewId={interview.id}
+          jobTitle={interview.job_title ?? "Mock interview"}
+          company={interview.company}
+        />
       ) : (
-        <div className="rounded-xl border p-8 text-center">
-          <p className="font-medium">This interview is finished.</p>
-          <ButtonLink className="mt-4" href={`/interviews/${interview.id}/report`}>
+        <div className="rounded-2xl border bg-card p-10 text-center">
+          <h1 className="text-xl font-semibold">This interview is finished</h1>
+          <p className="mt-1 text-sm text-muted-foreground">Your report has everything we heard and how it went.</p>
+          <ButtonLink className="mt-5" href={`/interviews/${interview.id}/report`}>
             View report
           </ButtonLink>
         </div>
