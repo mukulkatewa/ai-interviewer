@@ -1,0 +1,41 @@
+# Production stack on one VM (projectprep.md 5.13). From the repo root:
+#   API_DOMAIN=api.<VM-IP>.sslip.io docker compose -f infra/docker-compose.prod.yml up -d --build
+services:
+  caddy:
+    image: caddy:2.10-alpine
+    restart: unless-stopped
+    ports:
+      - "80:80"    # ACME challenge + redirect to HTTPS
+      - "443:443"
+    environment:
+      API_DOMAIN: ${API_DOMAIN:?set API_DOMAIN, e.g. api.<VM-IP>.sslip.io}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data  # certificates must survive restarts (Let's Encrypt rate limits)
+    depends_on:
+      - api
+
+  api:
+    build: ../apps/api
+    restart: unless-stopped
+    env_file: ../apps/api/.env  # secrets stay on the VM, never in the image (.dockerignore)
+    environment:
+      KOKORO_URL: http://kokoro:8880
+    expose:
+      - "8000"  # reachable only through Caddy
+    depends_on:
+      - kokoro
+
+  kokoro:
+    image: ghcr.io/remsky/kokoro-fastapi-cpu:v0.9.0  # pinned; multi-arch (amd64 + arm64)
+    restart: unless-stopped
+    cpus: 4
+    environment:
+      # Threads must match the CPU budget, or PyTorch oversubscribes (D23).
+      OMP_NUM_THREADS: "4"
+      MKL_NUM_THREADS: "4"
+    expose:
+      - "8880"  # internal only: TTS is not a public service
+
+volumes:
+  caddy_data:

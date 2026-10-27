@@ -1,0 +1,7 @@
+# HTTPS in front of the API (projectprep.md 5.13).
+# API_DOMAIN e.g. api.203.0.113.7.sslip.io (free, no signup) or your own domain.
+# Caddy obtains and renews the certificate itself and proxies WebSockets with no extra config.
+{$API_DOMAIN} {
+	encode zstd gzip
+	reverse_proxy api:8000
+}
