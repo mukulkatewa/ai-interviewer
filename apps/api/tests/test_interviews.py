@@ -215,7 +215,12 @@ def test_reconnect_resumes_with_last_question(client, fakes, interview_id):
         start(ws)
         answer(ws)  # now on Q1
     with connect(client, interview_id) as ws:  # e.g. network drop, page reload
-        assert auth(ws) == {"type": "ready", "interview_id": interview_id, "resumable": True}
+        assert auth(ws) == {
+            "type": "ready",
+            "interview_id": interview_id,
+            "resumable": True,
+            "total": len(PLAN.questions),
+        }
         ws.send_json({"type": "start"})
         sentences, end = read_reply(ws)
 
@@ -315,3 +320,69 @@ def test_resume_after_dropping_during_intro_replays_intro(client, fakes, intervi
 
     assert spoken(sentences).startswith("Hi Rahul!")  # the intro, not the wrap-up
     assert end == {"type": "turn_end", "question": 0}
+
+
+# --- ending the interview (D33) -------------------------------------------------
+
+
+def test_end_while_the_interviewer_is_speaking_takes_effect_at_once(client, fakes, interview_id):
+    tts, _, _ = fakes
+    tts.delay = 0.15  # each sentence takes a moment, like real speech synthesis
+    with connect(client, interview_id) as ws:
+        auth(ws)
+        ws.send_json({"type": "start"})
+        assert ws.receive_json()["type"] == "reply_start"
+        assert ws.receive_json()["type"] == "sentence"  # the intro is mid-way...
+        ws.receive_bytes()
+        ws.send_json({"type": "end"})  # ...and the candidate clicks End interview
+
+        intro_sentences_after_end, kinds = 0, []
+        while True:
+            message = ws.receive_json()
+            kinds.append(message["type"])
+            if message["type"] == "sentence":
+                if message["audio"]:
+                    ws.receive_bytes()
+                if not message["text"].startswith(("No problem", "That's the end", "Your feedback")):
+                    intro_sentences_after_end += 1
+            if message["type"] == "ended":
+                break
+
+    # The rest of the intro was cancelled, the closing was spoken, and no stale "your turn" followed.
+    assert intro_sentences_after_end <= 1
+    assert "turn_end" not in kinds
+    assert client.get(f"/interviews/{interview_id}").json()["status"] == "evaluating"
+    assert len(db_rows("select 1 from jobs where kind = 'evaluate_interview'")) == 1
+
+
+def test_candidate_asking_to_stop_ends_the_interview_without_another_question(client, fakes, interview_id):
+    _, stt, live = fakes
+    with connect(client, interview_id) as ws:
+        start(ws)
+        stt.text = "I want to stop the interview."
+        ws.send_bytes(make_wav(2))
+        assert ws.receive_json() == {"type": "transcript", "role": "candidate", "text": "I want to stop the interview."}
+        sentences, end = read_reply(ws)
+
+    assert spoken(sentences).startswith("No problem, let's stop here.")
+    assert end["type"] == "ended"
+    assert live.prompts == []  # the model was never asked for a next question
+    assert client.get(f"/interviews/{interview_id}").json()["status"] == "evaluating"
+    assert len(db_rows("select 1 from jobs where kind = 'evaluate_interview'")) == 1
+
+
+def test_a_technical_answer_mentioning_stop_does_not_end_the_interview(client, fakes, interview_id):
+    _, stt, _ = fakes
+    with connect(client, interview_id) as ws:
+        start(ws)
+        stt.text = "We stop the container before deleting the volume."
+        _, end = answer(ws)
+    assert end["type"] == "turn_end"
+
+
+def test_end_before_the_interview_started_just_closes(client, fakes, interview_id):
+    with connect(client, interview_id) as ws:
+        auth(ws)
+        ws.send_json({"type": "end"})
+        assert closed_with(ws) == 1000
+    assert client.get(f"/interviews/{interview_id}").json()["status"] == "created"

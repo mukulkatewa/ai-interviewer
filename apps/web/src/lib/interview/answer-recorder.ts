@@ -16,6 +16,8 @@ const WAV_PCM = 1; // encodeWAV defaults to 32-bit float; the server accepts 16-
 
 type Handlers = {
   onSpeaking: (speaking: boolean) => void;
+  /** How much like speech the microphone sounds right now, 0 to 1 (drives the voice orb). */
+  onLevel?: (level: number) => void;
   onAnswer: (wav: ArrayBuffer) => void;
   onNothingHeard: () => void;
 };
@@ -29,12 +31,13 @@ export class AnswerRecorder {
   private constructor(
     private readonly vad: MicVAD,
     private readonly handlers: Handlers,
+    private readonly releaseMicrophone: () => void,
   ) {}
 
-  /** Asks for the microphone, so call it from a click handler. Throws if permission is denied. */
+  /** Asks for the microphone now, so call it from the Start click. Throws if permission is denied. */
   static async create(handlers: Handlers): Promise<AnswerRecorder> {
     // VAD callbacks are wired before the recorder exists; they reach it through this ref.
-    const ref: { recorder?: AnswerRecorder } = {};
+    const ref: { recorder?: AnswerRecorder; stream?: MediaStream } = {};
     const vad = await MicVAD.new({
       model: "v5",
       // Self-hosted by scripts/copy-vad-assets.mjs.
@@ -44,15 +47,38 @@ export class AnswerRecorder {
       redemptionMs: SEGMENT_END_MS,
       minSpeechMs: 300, // ignore coughs and clicks
       submitUserSpeechOnPause: true, // "Done" mid-sentence keeps what was said
-      getStream: () =>
-        navigator.mediaDevices.getUserMedia({
-          // Echo cancellation keeps the interviewer's voice out of the answer (D28).
+      getStream: async () => {
+        // Echo cancellation keeps the interviewer's voice out of the answer (D28).
+        ref.stream = await navigator.mediaDevices.getUserMedia({
           audio: { channelCount: 1, echoCancellation: true, noiseSuppression: true, autoGainControl: true },
-        }),
+        });
+        return ref.stream;
+      },
+      // One microphone stream for the whole interview. The library's default stops the stream on every
+      // pause and asks the browser for the microphone again each turn (a new prompt on some browsers).
+      pauseStream: async (stream) => {
+        stream.getAudioTracks().forEach((track) => (track.enabled = false));
+      },
+      resumeStream: async (stream) => {
+        stream.getAudioTracks().forEach((track) => (track.enabled = true));
+        return stream;
+      },
+      onFrameProcessed: (probabilities) => handlers.onLevel?.(probabilities.isSpeech),
       onSpeechStart: () => ref.recorder?.speechStarted(),
       onSpeechEnd: (audio) => ref.recorder?.speechEnded(audio),
     });
-    ref.recorder = new AnswerRecorder(vad, handlers);
+    const releaseMicrophone = () => ref.stream?.getTracks().forEach((track) => track.stop());
+    try {
+      // The library only opens the microphone on the first start(). Do that here, on the click, so the
+      // browser's permission prompt appears now and not 15 seconds in, when it is your turn to answer.
+      await vad.start();
+      await vad.pause();
+    } catch (error) {
+      releaseMicrophone();
+      await vad.destroy().catch(() => {}); // can throw when startup failed half-way; nothing more to release
+      throw error;
+    }
+    ref.recorder = new AnswerRecorder(vad, handlers, releaseMicrophone);
     return ref.recorder;
   }
 
@@ -71,10 +97,12 @@ export class AnswerRecorder {
     this.finish();
   }
 
+  /** Safe to call at any time and more than once: it releases the microphone and never throws. */
   async destroy(): Promise<void> {
     this.active = false;
     this.clearTimers();
-    await this.vad.destroy();
+    this.releaseMicrophone(); // the stream outlives every pause now, so it must be stopped explicitly
+    await this.vad.destroy().catch(() => {});
   }
 
   private speechStarted(): void {

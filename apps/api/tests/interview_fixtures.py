@@ -43,9 +43,11 @@ class FakeTTS:
 
     def __init__(self):
         self.fail_from: int | None = None
+        self.delay = 0.0  # seconds per sentence: lets a test act while the interviewer is "speaking"
         self.calls: list[str] = []
 
     async def synthesize(self, text: str) -> bytes:
+        await asyncio.sleep(self.delay)
         self.calls.append(text)
         if self.fail_from is not None and len(self.calls) > self.fail_from:
             raise TTSError("kokoro down")
