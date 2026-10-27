@@ -8,7 +8,7 @@ from app.jobs import queue
 from app.jobs.worker import Worker
 from app.llm import LLMBusyError
 from app.main import app
-from app.report.evaluate import build_report, overall_score, verified_evidence
+from app.report.evaluate import build_report, clean_question, overall_score, verified_evidence
 from app.report.metrics import speaking_metrics
 from app.report.schema import CompetencyScore, Evaluation, QuestionFeedback
 from app.report.service import report_handlers
@@ -41,6 +41,16 @@ def test_overall_score_is_weighted_and_skips_missing():
     # (0.30*5 + 0.20*1) / 0.50 = 3.4 -> (3.4-1)/4 = 60
     assert overall_score([c("technical_depth", 5), c("communication", 1), c("behavioral", None)]) == 60
     assert overall_score([c("behavioral", None)]) is None
+
+
+def test_clean_question_strips_copied_focus_note():
+    assert (
+        clean_question("How did you find the bottleneck? (focus: Shows profiling skill.)")
+        == "How did you find the bottleneck?"
+    )
+    assert (
+        clean_question("Why (and how) did you choose React?") == "Why (and how) did you choose React?"
+    )  # real parentheses stay
 
 
 def test_speaking_metrics():

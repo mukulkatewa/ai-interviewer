@@ -165,6 +165,10 @@ class TurnReply:
                 if self.llm_ms is None:
                     self.llm_ms = round((time.perf_counter() - started) * 1000)
                 yield sentence
+            if self.llm_ms is None:
+                # The model answered but nothing was spoken (e.g. its reaction was only a
+                # question and was dropped): record when it finished, not a missing value.
+                self.llm_ms = round((time.perf_counter() - started) * 1000)
         except LLMError as e:
             # The interview never stalls on the model: code says the transition (D29).
             logger.warning("Live LLM failed, using scripted transition: %s", e)

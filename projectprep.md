@@ -683,10 +683,10 @@ Each step ends with something we can **run and test**.
 | 5 | ✅ Speech spike | Script measures Groq Whisper + Kokoro latency on our machine |
 | 6 | ✅ TTS + WebSocket | Server can speak a question to the browser |
 | 7 | ✅ STT + VAD | Browser sends an answer, server shows the transcript |
-| 8 | SLM interview loop | Full voice interview with phases and follow-ups |
-| 9 | Evaluation report | Rubric scores + evidence + speaking metrics |
-| 10 | Deploy + limits + analytics | Live URL, quotas, PostHog |
-| 11 | Launch | Share with students, collect feedback |
+| 8 | ✅ SLM interview loop | Full voice interview with phases and follow-ups |
+| 9 | ✅ Evaluation report | Rubric scores + evidence + speaking metrics |
+| 10 | ✅ Limits, CI, deploy files, analytics | Code and guides done; going live needs your Oracle VM + Vercel (docs/deploy.md) |
+| 11 | Launch (you) | Checklist in docs/launch.md: friends first, then wider |
 
 ---
 

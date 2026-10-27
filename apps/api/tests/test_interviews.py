@@ -144,6 +144,18 @@ def test_next_reaction_never_asks_its_own_question(client, fakes, interview_id):
     assert spoken(sentences[1:]) == f"Interesting work on the dashboard. {Q1}"  # one question per turn (D29)
 
 
+def test_latency_recorded_even_when_the_models_reaction_is_dropped(client, fakes, interview_id):
+    _, _, live = fakes
+    live.replies = ["ACTION: NEXT\nWhat about testing?"]  # only a question: nothing from the model is spoken
+    with connect(client, interview_id) as ws:
+        start(ws)
+        sentences, _ = answer(ws)
+
+    assert spoken(sentences[1:]) == Q1  # just the planned question after the acknowledgement
+    reply = db_rows("select llm_ms from interview_turns where role = 'interviewer' order by seq")[1]
+    assert reply["llm_ms"] is not None
+
+
 def test_llm_failure_uses_scripted_transition(client, fakes, interview_id):
     _, _, live = fakes
     live.replies = [LLMError("groq down")]
