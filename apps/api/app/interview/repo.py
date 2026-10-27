@@ -1,14 +1,15 @@
 """SQL for interviews. Scoped by user_id (projectprep.md, section 8)."""
 
+import json
 from datetime import datetime
-from typing import Literal
+from typing import Any, Literal
 from uuid import UUID
 
 import asyncpg
 from pydantic import BaseModel
 
 from app.analysis.schema import MatchResult
-from app.interview.plan import InterviewPlan
+from app.interview.plan import InterviewPlan, Position
 from app.jd.schema import JobProfile
 from app.resume.schema import ResumeProfile
 
@@ -20,6 +21,7 @@ class Interview(BaseModel):
     analysis_id: UUID
     status: InterviewStatus
     created_at: datetime
+    started_at: datetime | None
     # From the linked analysis/resume: what the interviewer needs to greet and focus.
     candidate_name: str | None
     job_title: str | None
@@ -27,7 +29,7 @@ class Interview(BaseModel):
 
 
 _SELECT = """
-    select i.id, i.analysis_id, i.status, i.created_at,
+    select i.id, i.analysis_id, i.status, i.created_at, i.started_at,
            r.profile->>'name' as candidate_name,
            j.profile->>'title' as job_title,
            j.profile->>'company' as company
@@ -105,13 +107,16 @@ class InterviewContext(BaseModel):
     resume: ResumeProfile
     job: JobProfile
     match: MatchResult
+    plan: InterviewPlan | None  # None only for interviews created before phase 8
+    position: Position
 
 
 async def get_context(db: asyncpg.Pool, user_id: UUID, interview_id: UUID) -> InterviewContext | None:
     row = await db.fetchrow(
         f"""
-        select q.*, r.profile as resume_profile, j.profile as job_profile, a.match
+        select q.*, r.profile as resume_profile, j.profile as job_profile, a.match, i.plan, i.position
         from ({_SELECT} where i.id = $1 and i.user_id = $2) q
+        join interviews i on i.id = q.id
         join analyses a on a.id = q.analysis_id
         join resumes r on r.id = a.resume_id
         join job_descriptions j on j.id = a.job_description_id
@@ -125,4 +130,67 @@ async def get_context(db: asyncpg.Pool, user_id: UUID, interview_id: UUID) -> In
         resume=ResumeProfile.model_validate_json(row["resume_profile"]),
         job=JobProfile.model_validate_json(row["job_profile"]),
         match=MatchResult.model_validate_json(row["match"]),
+        plan=InterviewPlan.model_validate_json(row["plan"]) if row["plan"] else None,
+        position=Position.model_validate_json(row["position"]),
     )
+
+
+# --- turns ----------------------------------------------------------------------
+
+
+class Turn(BaseModel):
+    seq: int
+    role: Literal["interviewer", "candidate"]
+    question_index: int
+    text: str
+
+
+async def list_turns(db: asyncpg.Pool, user_id: UUID, interview_id: UUID) -> list[Turn]:
+    rows = await db.fetch(
+        """
+        select seq, role, question_index, text from interview_turns
+        where interview_id = $1 and user_id = $2 order by seq
+        """,
+        interview_id, user_id,
+    )  # fmt: skip
+    return [Turn(**dict(r)) for r in rows]
+
+
+_INSERT_TURN = """
+    insert into interview_turns (user_id, interview_id, seq, role, question_index, text,
+                                 audio_seconds, stt_ms, llm_ms, tts_ms, segments)
+    values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+"""
+
+
+async def save_candidate_turn(db: asyncpg.Pool, user_id: UUID, interview_id: UUID, turn: Turn,
+                              audio_seconds: float, stt_ms: int, segments: list[dict[str, Any]]) -> None:  # fmt: skip
+    await db.execute(
+        _INSERT_TURN, user_id, interview_id, turn.seq, turn.role, turn.question_index, turn.text,
+        audio_seconds, stt_ms, None, None, json.dumps(segments),
+    )  # fmt: skip
+
+
+async def save_interviewer_turn(db: asyncpg.Pool, user_id: UUID, interview_id: UUID, turn: Turn,
+                                position: Position, llm_ms: int | None, tts_ms: int | None) -> None:  # fmt: skip
+    """The reply and the new position commit together: a crash can't leave one without the other."""
+    async with db.acquire() as conn, conn.transaction():
+        await conn.execute(
+            _INSERT_TURN, user_id, interview_id, turn.seq, turn.role, turn.question_index, turn.text,
+            None, None, llm_ms, tts_ms, None,
+        )  # fmt: skip
+        await conn.execute(
+            "update interviews set position = $3 where id = $1 and user_id = $2",
+            interview_id, user_id, position.model_dump_json(),
+        )  # fmt: skip
+
+
+async def finish(db: asyncpg.Pool, user_id: UUID, interview_id: UUID) -> None:
+    """in_progress -> evaluating. The report job (phase 9) takes it from here."""
+    await db.execute(
+        """
+        update interviews set status = 'evaluating', ended_at = now()
+        where id = $1 and user_id = $2 and status = 'in_progress'
+        """,
+        interview_id, user_id,
+    )  # fmt: skip

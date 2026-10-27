@@ -29,6 +29,13 @@ class InterviewPlan(ApiModel):
     questions: list[PlannedQuestion]
 
 
+class Position(ApiModel):
+    """Where the conversation is. question: 0 = intro, 1..N = planned, N+1 = wrap-up, N+2 = finished."""
+
+    question: int = 0
+    followups: int = 0
+
+
 SYSTEM_PROMPT = """You prepare a mock job interview. Write the planned questions for a spoken interview.
 
 Write exactly:

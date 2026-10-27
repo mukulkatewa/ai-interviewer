@@ -11,7 +11,7 @@ import groq
 from starlette.requests import HTTPConnection
 
 from app.config import get_settings
-from app.llm import GroqClient, LLMClient, create_groq
+from app.llm import GroqClient, LLMClient, TextStreamer, create_groq
 from app.speech.stt import GroqWhisper, STTProvider
 from app.speech.tts import TTSProvider
 
@@ -35,6 +35,12 @@ def get_resume_llm() -> LLMClient:
 def get_jd_llm() -> LLMClient:
     s = get_settings()
     return GroqClient(get_groq(), s.groq_jd_model, s.groq_jd_effort)
+
+
+@lru_cache
+def get_live_llm() -> TextStreamer:
+    s = get_settings()
+    return GroqClient(get_groq(), s.groq_live_model, s.groq_live_effort)
 
 
 @lru_cache
