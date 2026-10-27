@@ -17,7 +17,16 @@ export function AnalyzeForm({ resumeId }: { resumeId: string }) {
   const router = useRouter();
   const [jd, setJd] = useState("");
   const [pending, setPending] = useState(false);
-  const tooShort = jd.trim().length < MIN_CHARS;
+  const length = jd.trim().length;
+  const tooShort = length < MIN_CHARS;
+  // A disabled button alone looks broken: say what is missing, and catch the common mistake of pasting a link.
+  const hint = /^https?:\/\/\S+$/.test(jd.trim())
+    ? "That's a link. Copy the job description text from the page and paste it here."
+    : length === 0
+      ? `Paste the job description text (at least ${MIN_CHARS} characters).`
+      : tooShort
+        ? `A little more, please: ${MIN_CHARS - length} more characters needed.`
+        : null;
 
   async function analyze(e: React.FormEvent) {
     e.preventDefault();
@@ -50,8 +59,12 @@ export function AnalyzeForm({ resumeId }: { resumeId: string }) {
         maxLength={20_000}
         placeholder="We're hiring a Backend Engineer…"
         className="resize-y"
+        aria-describedby="jd-hint"
       />
-      <Button type="submit" className="h-10 w-full" disabled={pending || tooShort}>
+      <p id="jd-hint" className="min-h-5 text-sm text-muted-foreground" aria-live="polite">
+        {hint}
+      </p>
+      <Button type="submit" className="h-10 w-full" disabled={pending || tooShort || hint !== null}>
         {pending ? "Analyzing… (about 5 seconds)" : "Analyze match"}
       </Button>
     </form>
