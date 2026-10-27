@@ -58,7 +58,7 @@ export default async function AnalysisPage({ params }: PageProps<"/analyses/[id]
         <div className="min-w-0">
           <h1 className="text-2xl font-semibold tracking-tight">{job.title ?? "Job match report"}</h1>
           <p className="text-muted-foreground">
-            {[job.company, job.seniority, formatDate(report.created_at)].filter(Boolean).join(" · ")}
+            {[job.company, job.seniority, formatDate(report.created_at)].filter(Boolean).join(", ")}
           </p>
           <p className="mt-3 max-w-2xl text-pretty">{insights.summary}</p>
           <div className="mt-4 flex flex-wrap items-center gap-4">

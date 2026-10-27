@@ -74,7 +74,7 @@ export default async function ResumePage({ params }: PageProps<"/resumes/[id]">)
             <h2 className="text-sm font-medium text-muted-foreground">Education</h2>
             {profile.education.map((ed) => (
               <p key={ed.institution} className="text-sm">
-                {[ed.degree, ed.institution, ed.year].filter(Boolean).join(" · ")}
+                {[ed.degree, ed.institution, ed.year].filter(Boolean).join(", ")}
               </p>
             ))}
           </section>

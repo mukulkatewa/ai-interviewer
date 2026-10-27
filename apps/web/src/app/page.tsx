@@ -1,58 +1,132 @@
+import { ArrowRightIcon } from "lucide-react";
+import Link from "next/link";
 
 import { ButtonLink } from "@/components/button-link";
+import { HeroDemo } from "@/components/hero-demo";
 import { Logo } from "@/components/logo";
+import { ThemeToggle } from "@/components/theme-toggle";
 
 const STEPS = [
   {
     title: "Upload your resume",
-    body: "We read your experience, projects and skills: no forms to fill.",
+    body: "A text-based PDF. We read your jobs, projects and skills, so there is nothing to fill in.",
   },
   {
     title: "Paste the job description",
-    body: "Get a match score, the skills you're missing, and stronger resume bullets.",
+    body: "You get a match score, the skills you are missing, and stronger bullets for your resume.",
   },
   {
-    title: "Practice the interview",
-    body: "A voice interviewer asks about your resume and this role, then shows exactly where to improve.",
+    title: "Talk through the interview",
+    body: "A voice interviewer asks about your own projects and this job's gaps, and follows up when an answer is vague.",
+  },
+  {
+    title: "Read your report",
+    body: "Scores for five skills, each backed by the exact words you said, plus a stronger answer for every question.",
+  },
+];
+
+const PRINCIPLES = [
+  {
+    title: "Questions that fit you",
+    body: "Built from your resume and the skills this job asks for that your resume does not show yet.",
+  },
+  {
+    title: "Feedback you can check",
+    body: "Every score points to a quote from your answers. If you did not say it, it is not in the report.",
+  },
+  {
+    title: "Free, and yours",
+    body: "No card, no trial. Your audio is never stored, and one button deletes everything else.",
   },
 ];
 
 export default function LandingPage() {
   return (
     <div className="flex flex-1 flex-col">
-      <header className="mx-auto flex w-full max-w-5xl items-center justify-between px-4 py-5">
+      <header className="mx-auto flex h-16 w-full max-w-6xl items-center justify-between px-5">
         <Logo />
-        <ButtonLink variant="ghost" href="/login">
-          Sign in
-        </ButtonLink>
+        <div className="flex items-center gap-1">
+          <ThemeToggle />
+          <ButtonLink href="/login" variant="ghost">
+            Sign in
+          </ButtonLink>
+        </div>
       </header>
 
-      <main className="mx-auto flex w-full max-w-5xl flex-1 flex-col px-4">
-        <section className="py-16 sm:py-24">
-          <p className="text-sm font-medium text-primary">Free · No credit card</p>
-          <h1 className="mt-3 max-w-3xl text-4xl font-semibold tracking-tight text-balance sm:text-6xl">
-            Practice the interview for the job you actually want.
-          </h1>
-          <p className="mt-5 max-w-2xl text-lg text-muted-foreground text-pretty">
-            Questions built from your resume and the job description, and feedback that quotes your own answers.
-          </p>
-          <div className="mt-8 flex gap-3">
-            <ButtonLink size="lg" className="h-11 px-5" href="/login">
-              Get started
-            </ButtonLink>
+      <main className="flex-1">
+        <section className="mx-auto grid w-full max-w-6xl items-center gap-14 px-5 pt-10 pb-24 lg:grid-cols-[1.05fr_1fr] lg:pt-20">
+          <div>
+            <h1 className="text-5xl leading-[1.02] font-semibold sm:text-6xl lg:text-7xl">
+              Practice the interview for the job you actually want.
+            </h1>
+            <p className="mt-6 max-w-xl text-lg text-muted-foreground text-pretty">
+              Upload your resume and paste a job description. You get a spoken interview built from both, then feedback
+              that quotes your own answers.
+            </p>
+            <div className="mt-9 flex flex-wrap items-center gap-3">
+              <ButtonLink href="/login" size="lg" className="h-12 px-6 text-base">
+                Start practicing free
+                <ArrowRightIcon aria-hidden />
+              </ButtonLink>
+              <ButtonLink href="#how" variant="ghost" size="lg" className="h-12 px-5 text-base">
+                See how it works
+              </ButtonLink>
+            </div>
+          </div>
+          <HeroDemo />
+        </section>
+
+        <section id="how" className="border-y bg-card/60">
+          <div className="mx-auto grid w-full max-w-6xl gap-12 px-5 py-20 lg:grid-cols-[1fr_1.4fr]">
+            <h2 className="text-3xl font-semibold sm:text-4xl lg:sticky lg:top-24 lg:self-start">
+              From resume to report in about twenty minutes
+            </h2>
+            <ol className="relative space-y-9 border-l border-border pl-8">
+              {STEPS.map((step, i) => (
+                <li key={step.title} className="relative">
+                  <span className="absolute top-0 -left-[2.9rem] grid size-8 place-items-center rounded-full border bg-background text-sm font-medium tabular-nums">
+                    {i + 1}
+                  </span>
+                  <h3 className="text-xl font-semibold">{step.title}</h3>
+                  <p className="mt-1 max-w-lg text-muted-foreground text-pretty">{step.body}</p>
+                </li>
+              ))}
+            </ol>
           </div>
         </section>
 
-        <section className="grid gap-4 pb-24 sm:grid-cols-3" aria-label="How it works">
-          {STEPS.map((step, i) => (
-            <div key={step.title} className="rounded-xl border bg-card p-5">
-              <span className="font-mono text-sm text-muted-foreground">0{i + 1}</span>
-              <h2 className="mt-2 font-medium">{step.title}</h2>
-              <p className="mt-1.5 text-sm text-muted-foreground">{step.body}</p>
-            </div>
-          ))}
+        <section className="mx-auto w-full max-w-6xl px-5 py-20">
+          <div className="grid gap-10 md:grid-cols-3">
+            {PRINCIPLES.map((p) => (
+              <div key={p.title}>
+                <h3 className="text-xl font-semibold">{p.title}</h3>
+                <p className="mt-2 text-muted-foreground text-pretty">{p.body}</p>
+              </div>
+            ))}
+          </div>
+        </section>
+
+        <section className="mx-auto w-full max-w-6xl px-5 pb-24">
+          <div className="flex flex-col items-start justify-between gap-6 rounded-[1.75rem] bg-primary px-8 py-12 text-primary-foreground sm:flex-row sm:items-center sm:px-12">
+            <h2 className="max-w-md text-3xl font-semibold sm:text-4xl">Your next interview is the one to practice for.</h2>
+            <ButtonLink href="/login" variant="secondary" size="lg" className="h-12 px-6 text-base">
+              Start practicing free
+            </ButtonLink>
+          </div>
         </section>
       </main>
+
+      <footer className="border-t">
+        <div className="mx-auto flex w-full max-w-6xl flex-wrap items-center justify-between gap-3 px-5 py-6 text-sm text-muted-foreground">
+          <p>Built with Next.js, FastAPI, Groq and Kokoro.</p>
+          <Link
+            href="https://github.com/mukulkatewa/ai-interviewer"
+            className="underline-offset-4 hover:text-foreground hover:underline"
+          >
+            Source on GitHub
+          </Link>
+        </div>
+      </footer>
     </div>
   );
 }
