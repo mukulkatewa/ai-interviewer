@@ -14,6 +14,8 @@ const eslintConfig = defineConfig([
     "next-env.d.ts",
     // Vendored runtime copied by scripts/copy-vad-assets.mjs; not our code.
     "public/vad/**",
+    // Local throwaway e2e scripts (git-ignored too).
+    ".e2e-*.mjs",
   ]),
 ]);
 

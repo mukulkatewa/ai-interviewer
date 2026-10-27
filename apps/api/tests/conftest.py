@@ -118,9 +118,12 @@ def client(database, login, monkeypatch):
 
     Entering TestClient runs the real lifespan, so pool startup is tested too.
     """
-    # Truncating auth.users cascades to every table that references it.
-    asyncio.run(_run_sql("truncate auth.users cascade", f"insert into auth.users values ('{USER_A}'), ('{USER_B}')"))
+    # Truncating auth.users cascades to every user-owned table; jobs has no user_id (D31), so it's listed too.
+    asyncio.run(
+        _run_sql("truncate auth.users, public.jobs cascade", f"insert into auth.users values ('{USER_A}'), ('{USER_B}')")
+    )
     monkeypatch.setattr(get_settings(), "database_url", database)
+    monkeypatch.setattr(get_settings(), "run_jobs", False)  # tests run the worker explicitly
     login(USER_A)
     with TestClient(app) as c:
         yield c

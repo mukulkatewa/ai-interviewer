@@ -240,6 +240,11 @@ Each decision: **what we chose → why → what we gave up.**
 - **Why:** two tabs answering the same interview would corrupt its turn order. In memory is enough because we run one API process (one Oracle VM).
 - **Later:** with several API processes this moves to a Postgres advisory lock.
 
+### D31. Background jobs in Postgres, inside the API process
+- **Chose:** a `jobs` table + `SKIP LOCKED` + one asyncio worker task started in the app lifespan.
+- **Why:** the report takes 5–15 s of LLM time and must survive a closed tab and a server restart. Postgres already gives us durable, transactional queues; Redis/Celery would be two more services to run on a free VM for a few jobs an hour.
+- **Gave up:** a separate worker process. At our scale one process is fine, and the same SQL works when we split it out later.
+
 ---
 
 ## 5. How each feature works (step by step)
@@ -420,6 +425,34 @@ Code: `apps/api/bench/speech.py`. Results: `docs/benchmarks/`.
 - **Disconnect:** position and turns are in the DB. Reconnecting to an `in_progress` interview shows **Resume**, and the interviewer says "Welcome back" and repeats the last question.
 - **Two tabs:** the newest connection takes over and the old one is closed with `4409` (single API process, see D30).
 
+## 5.12 The feedback report (phase 9)
+
+**Trigger.** When an interview ends, `finish()` sets the status to `evaluating` **and inserts an `evaluate_interview` job in the same transaction** (a "transactional outbox"). So there's never an interview stuck in `evaluating` without a job, and never a job for an interview that didn't end.
+
+**Worker.** A background task inside the API process polls the `jobs` table every 2 s and claims one job with `SELECT … FOR UPDATE SKIP LOCKED`. Two workers can never take the same job, and adding more workers later needs no code change.
+- Success → `done`, interview `completed`.
+- Groq busy → back in the queue at the `Retry-After` time (doesn't count as a failure).
+- Other errors → retried with backoff (30 s, 60 s), then `failed` after 3 attempts; the interview is marked `failed` and the user sees a **Retry** button.
+- A job stuck in `running` for 5 minutes (the process died mid-job) is put back in the queue.
+
+**What the report contains**
+
+| Part | Made by | Why |
+|---|---|---|
+| Speaking metrics: words per minute, average answer length, very short answers, filler phrases | **Code** (turn text + audio seconds) | Facts, not opinions: free, instant, identical every time |
+| 5 competencies (communication, technical depth, problem solving, role fit, behavioral/STAR), each 1–5 with a rationale | Analysis model (`gpt-oss-120b`, medium) | Needs judgment |
+| Evidence: 1–2 **quotes** per competency | Model, **checked by code**: a quote is kept only if it really appears in the candidate's answers (D14) | Feedback users can verify; no invented quotes |
+| Per question: what worked, what was missing, an outline of a stronger answer | Model | The most useful part for practice |
+| Overall score 0–100 | **Code**: weighted average of competency scores | Consistent and explainable (same idea as D6) |
+
+Weights: technical depth 30%, problem solving 20%, communication 20%, role fit 15%, behavioral 15%. A competency the model marks "not enough evidence" (e.g. the interview ended before the behavioral questions) is left out and the weights are re-normalized.
+
+**Honest limits:** Whisper tends to drop "um" and "uh", so filler counts only cover phrases it keeps ("basically", "you know", "kind of"…). Pause metrics aren't possible yet because the browser sends only speech segments.
+
+**Fewer than 2 answers** → no model call; the report says the interview was too short to evaluate.
+
+**API:** `GET /interviews/{id}/report` → `{status, report}` (`evaluating` | `completed` | `failed`), polled by the page every 3 s. `POST /interviews/{id}/report/retry` re-queues a failed report. `GET /interviews` lists interviews for the dashboard.
+
 ---
 
 ## 6. WebSocket protocol
@@ -502,12 +535,14 @@ interview_turns   (id, user_id, interview_id → interviews (same user), seq, ro
                    unique (interview_id, seq)
 ```
 
-**Later phases (planned):**
+**Phase 9:**
 
 ```
-evaluations       (id, interview_id, overall_score, scores jsonb, metrics jsonb,
-                   strengths jsonb, improvements jsonb, created_at)
-jobs              (id, kind, payload jsonb, status, attempts, run_after, created_at)
+evaluations       (id, user_id, interview_id → interviews (same user), unique,
+                   overall_score smallint, report jsonb, created_at)
+jobs              (id, kind, payload jsonb, status [queued|running|done|failed], attempts,
+                   run_after, last_error, created_at, updated_at)
+                   partial index on run_after where status = 'queued': the worker's only query
 ```
 
 **Rules every table follows**

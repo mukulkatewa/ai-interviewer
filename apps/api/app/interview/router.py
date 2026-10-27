@@ -10,6 +10,7 @@ from app.deps import get_analysis_llm
 from app.interview import repo
 from app.interview.plan import make_plan
 from app.llm import LLMClient
+from app.report import repo as report_repo
 
 router = APIRouter(prefix="/interviews", tags=["interviews"])
 
@@ -35,6 +36,28 @@ async def create_interview(
     if interview is None:  # analysis deleted while we were planning
         raise HTTPException(404, "Analysis not found")
     return interview
+
+
+@router.get("")
+async def list_interviews(user: AuthUser, db: Db) -> list[report_repo.InterviewSummary]:
+    return await report_repo.list_interviews(db, user.id)
+
+
+@router.get("/{interview_id}/report")
+async def get_report(interview_id: UUID, user: AuthUser, db: Db) -> report_repo.ReportResponse:
+    """Polled by the report page: status is "evaluating" until the job finishes (5.12)."""
+    result = await report_repo.get_report(db, user.id, interview_id)
+    if result is None:
+        raise HTTPException(404, "Interview not found")
+    return result
+
+
+@router.post("/{interview_id}/report/retry", status_code=202)
+async def retry_report(interview_id: UUID, user: AuthUser, db: Db) -> None:
+    if await report_repo.get_report(db, user.id, interview_id) is None:
+        raise HTTPException(404, "Interview not found")  # same as "doesn't exist" (section 8)
+    if not await report_repo.retry(db, user.id, interview_id):
+        raise HTTPException(409, "Only a failed report can be retried")
 
 
 @router.get("/{interview_id}")

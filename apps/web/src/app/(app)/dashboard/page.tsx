@@ -8,12 +8,21 @@ import { UploadResume } from "./upload-resume";
 
 export const metadata: Metadata = { title: "Dashboard" };
 
+const INTERVIEW_STATUS = {
+  created: "Not started",
+  in_progress: "In progress",
+  evaluating: "Report pending",
+  completed: "Done",
+  failed: "Report failed",
+} as const;
+
 export default async function DashboardPage() {
   const api = await getServerApi();
   // Both lists in parallel: one round trip of latency, not two.
-  const [resumes, analyses] = await Promise.all([
+  const [resumes, analyses, interviews] = await Promise.all([
     api.GET("/resumes").then(unwrap),
     api.GET("/analyses").then(unwrap),
+    api.GET("/interviews").then(unwrap),
   ]);
 
   return (
@@ -42,6 +51,37 @@ export default async function DashboardPage() {
           </ul>
         )}
       </section>
+
+      {interviews.length > 0 && (
+        <section className="space-y-3">
+          <h2 className="text-sm font-medium text-muted-foreground">Mock interviews</h2>
+          <ul className="divide-y rounded-xl border">
+            {interviews.map((i) => {
+              const live = i.status === "created" || i.status === "in_progress";
+              return (
+                <li key={i.id}>
+                  <Link
+                    href={live ? `/interviews/${i.id}` : `/interviews/${i.id}/report`}
+                    className="flex items-center justify-between gap-4 p-4 hover:bg-muted/50"
+                  >
+                    <span className="min-w-0">
+                      <span className="block truncate font-medium">{i.job_title ?? "Untitled role"}</span>
+                      <span className="block truncate text-sm text-muted-foreground">
+                        {[i.company, formatDate(i.created_at)].filter(Boolean).join(" · ")}
+                      </span>
+                    </span>
+                    {i.status === "completed" ? (
+                      <ScoreBadge score={i.overall_score} />
+                    ) : (
+                      <span className="shrink-0 text-sm text-muted-foreground">{INTERVIEW_STATUS[i.status]}</span>
+                    )}
+                  </Link>
+                </li>
+              );
+            })}
+          </ul>
+        </section>
+      )}
 
       <section className="space-y-3">
         <h2 className="text-sm font-medium text-muted-foreground">Job match reports</h2>
