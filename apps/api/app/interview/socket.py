@@ -19,7 +19,7 @@ from app.config import Settings, get_settings
 from app.db import Db
 from app.deps import get_live_llm, get_stt, get_tts
 from app.interview import repo, script
-from app.interview.conversation import TurnReply, advance, question_text
+from app.interview.conversation import TurnReply, advance
 from app.interview.plan import InterviewPlan, normalize
 from app.interview.speaker import ACKNOWLEDGEMENTS, Speaker
 from app.interview.vocabulary import vocabulary_prompt
@@ -134,7 +134,12 @@ class InterviewSession:
     async def resume(self) -> None:
         """Reconnected mid-interview: repeat the last thing the interviewer asked."""
         last = next((t.text for t in reversed(self.turns) if t.role == "interviewer"), None)
-        await self.speaker.say(script.welcome_back(last or question_text(self.plan, self.position)))
+        if last is None:
+            # Dropped during the intro, before it was saved: just give the intro again.
+            text = await self.speaker.say(script.intro(self.ctx.interview))
+            await self.record_reply(text, self.position, llm_ms=None, tts_ms=None)
+        else:
+            await self.speaker.say(script.welcome_back(last))
         await self.give_turn()
 
     async def on_answer(self, wav: bytes) -> None:

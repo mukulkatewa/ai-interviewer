@@ -46,3 +46,6 @@ next-env.d.ts
 
 # copied from node_modules by scripts/copy-vad-assets.mjs
 /public/vad/
+
+# local throwaway e2e scripts (a committed suite comes in phase 10)
+.e2e-*.mjs

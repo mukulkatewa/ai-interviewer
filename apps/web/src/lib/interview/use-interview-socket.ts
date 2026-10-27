@@ -5,27 +5,31 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { env } from "@/lib/env";
 import { createClient } from "@/lib/supabase/client";
 import { AnswerRecorder } from "./answer-recorder";
-import { AudioQueue, speakWithBrowser } from "./audio-queue";
+import { AudioQueue } from "./audio-queue";
 
-// Protocol: projectprep.md, section 6.
+// Protocol: projectprep.md, section 6 (phase 8: interviewer speech arrives sentence by sentence).
 type ServerMessage =
-  | { type: "ready"; interview_id: string }
-  | { type: "transcript"; role: "interviewer" | "candidate"; text: string }
-  | { type: "audio_meta"; seq: number; text: string }
-  | { type: "turn_end"; phase: string }
-  | { type: "error"; code: string; message: string; text?: string };
+  | { type: "ready"; interview_id: string; resumable: boolean }
+  | { type: "reply_start" }
+  | { type: "sentence"; seq: number; text: string; audio: boolean }
+  | { type: "transcript"; role: "candidate"; text: string }
+  | { type: "turn_end"; question: number }
+  | { type: "ended"; interview_id: string }
+  | { type: "error"; code: string; message: string };
 
-export type Status = "connecting" | "ready" | "speaking" | "listening" | "thinking" | "failed";
+export type Status = "connecting" | "ready" | "speaking" | "listening" | "thinking" | "ended" | "failed";
 export type Caption = { role: "interviewer" | "candidate"; text: string };
 
 const CLOSE_REASONS: Record<number, string> = {
   4401: "Your session expired. Reload the page to sign in again.",
   4404: "This interview doesn't exist or belongs to another account.",
+  4409: "This interview was opened in another tab.",
   1013: "The server is busy. Try again in a minute.",
 };
 
 export function useInterviewSocket(interviewId: string) {
   const [status, setStatus] = useState<Status>("connecting");
+  const [resumable, setResumable] = useState(false);
   const [captions, setCaptions] = useState<Caption[]>([]);
   const [problem, setProblem] = useState<string | null>(null); // fatal: shown instead of status
   const [notice, setNotice] = useState<string | null>(null); // recoverable: "didn't catch that"
@@ -33,6 +37,7 @@ export function useInterviewSocket(interviewId: string) {
   const ws = useRef<WebSocket | null>(null);
   const audio = useRef<AudioQueue>(new AudioQueue());
   const recorder = useRef<AnswerRecorder | null>(null);
+  const ended = useRef(false);
 
   useEffect(() => {
     let socket: WebSocket | null = null;
@@ -42,29 +47,40 @@ export function useInterviewSocket(interviewId: string) {
     async function handle(message: ServerMessage) {
       switch (message.type) {
         case "ready":
+          setResumable(message.resumable);
           setStatus("ready");
           break;
-        case "transcript":
-          setCaptions((c) => [...c, { role: message.role, text: message.text }]);
-          if (message.role === "interviewer") setStatus("speaking");
+        case "reply_start":
+          setStatus("speaking");
+          setCaptions((c) => [...c, { role: "interviewer", text: "" }]);
           break;
-        case "audio_meta":
-          break; // the next binary frame is this sentence's audio; captions already show the text
+        case "sentence":
+          setCaptions((c) => {
+            const last = c[c.length - 1];
+            return [...c.slice(0, -1), { ...last, text: last.text ? `${last.text} ${message.text}` : message.text }];
+          });
+          // With audio, the next binary frame is this sentence's MP3; without, the browser speaks it (D26).
+          if (!message.audio) queue.enqueueSpeech(message.text);
+          break;
+        case "transcript":
+          setCaptions((c) => [...c, { role: "candidate", text: message.text }]);
+          break;
         case "turn_end":
-          // Arrives before the audio finishes: only start listening once playback ends,
-          // or the mic would hear the interviewer (D28).
+          // Arrives before playback ends: start listening only after, or the mic hears the interviewer (D28).
           await queue.idle();
           if (disposed) return;
           setStatus("listening");
           await recorder.current?.listen();
           break;
+        case "ended":
+          ended.current = true;
+          await queue.idle(); // let the closing line finish
+          if (disposed) return;
+          setStatus("ended");
+          void recorder.current?.destroy(); // release the microphone
+          break;
         case "error":
-          if (message.code === "tts_unavailable" && message.text) {
-            await queue.idle(); // finish what our TTS already sent, then read the rest (D26)
-            await speakWithBrowser(message.text);
-          } else {
-            setNotice(message.message); // the server follows answer errors with turn_end
-          }
+          setNotice(message.message); // answer errors are followed by turn_end: the candidate just answers again
           break;
       }
     }
@@ -84,7 +100,7 @@ export function useInterviewSocket(interviewId: string) {
       ws.current = socket;
       // Token in the first message, never the URL: URLs end up in logs (projectprep.md, 6).
       socket.onopen = () => socket?.send(JSON.stringify({ type: "auth", token }));
-      // Handlers run in arrival order; the queue keeps audio in order too.
+      // Handlers run in arrival order; the queue keeps audio and browser speech in order too.
       let pending = Promise.resolve();
       socket.onmessage = (event) => {
         pending = pending.then(() =>
@@ -92,9 +108,10 @@ export function useInterviewSocket(interviewId: string) {
         );
       };
       socket.onclose = (event) => {
-        if (disposed) return;
+        if (disposed || ended.current) return;
         setStatus("failed");
-        setProblem(CLOSE_REASONS[event.code] ?? "Connection lost. Reload the page to continue.");
+        setProblem(CLOSE_REASONS[event.code] ?? "Connection lost. Reload the page to continue where you left off.");
+        void recorder.current?.destroy();
       };
     })();
 
@@ -108,7 +125,7 @@ export function useInterviewSocket(interviewId: string) {
     };
   }, [interviewId]);
 
-  /** Start button: unlock audio and ask for the mic in the same click (browsers require a gesture). */
+  /** Start/Resume button: unlock audio and ask for the mic in the same click (browsers require a gesture). */
   const start = useCallback(async () => {
     await audio.current.unlock();
     try {
@@ -137,5 +154,13 @@ export function useInterviewSocket(interviewId: string) {
   /** "Done answering": submit now instead of waiting for silence (D27). */
   const finishAnswer = useCallback(() => void recorder.current?.done(), []);
 
-  return { status, captions, problem, notice, userSpeaking, start, finishAnswer };
+  /** "End interview": stop early; the server says a closing line and generates the report. */
+  const endInterview = useCallback(async () => {
+    await recorder.current?.destroy();
+    recorder.current = null;
+    setStatus("speaking");
+    ws.current?.send(JSON.stringify({ type: "end" }));
+  }, []);
+
+  return { status, resumable, captions, problem, notice, userSpeaking, start, finishAnswer, endInterview };
 }

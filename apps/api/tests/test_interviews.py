@@ -435,3 +435,19 @@ def test_unknown_message_gets_error_not_disconnect(client, fakes, interview_id):
         auth(ws)
         ws.send_text("not json")
         assert ws.receive_json()["code"] == "bad_message"
+
+
+def test_resume_after_dropping_during_intro_replays_intro(client, fakes, interview_id):
+    with connect(client, interview_id) as ws:
+        auth(ws)
+        ws.send_json({"type": "start"})
+        ws.receive_json()  # reply_start, then the tab dies mid-intro
+    db_rows("delete from interview_turns where interview_id = $1", interview_id)  # intro never got saved
+
+    with connect(client, interview_id) as ws:
+        assert auth(ws)["resumable"] is True
+        ws.send_json({"type": "start"})
+        sentences, end = read_reply(ws)
+
+    assert spoken(sentences).startswith("Hi Rahul!")  # the intro, not the wrap-up
+    assert end == {"type": "turn_end", "question": 0}

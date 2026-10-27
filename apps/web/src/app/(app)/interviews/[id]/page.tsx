@@ -21,15 +21,14 @@ export default async function InterviewPage({ params }: PageProps<"/interviews/[
         </p>
       </header>
 
-      {interview.status === "created" ? (
+      {interview.status === "created" || interview.status === "in_progress" ? (
+        // in_progress: the room offers "Resume" and the interviewer repeats the last question.
         <InterviewRoom interviewId={interview.id} />
       ) : (
-        // Resuming a half-finished interview comes with the conversation loop (phase 8).
         <div className="rounded-xl border p-8 text-center">
-          <p className="font-medium">This interview has already started.</p>
-          <p className="mt-1 text-sm text-muted-foreground">Start a new one from your job match report.</p>
-          <Button className="mt-4" variant="outline" nativeButton={false} render={<Link href="/dashboard" />}>
-            Back to dashboard
+          <p className="font-medium">This interview is finished.</p>
+          <Button className="mt-4" nativeButton={false} render={<Link href={`/interviews/${interview.id}/report`} />}>
+            View report
           </Button>
         </div>
       )}

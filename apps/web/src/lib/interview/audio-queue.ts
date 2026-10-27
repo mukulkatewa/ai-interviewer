@@ -31,9 +31,22 @@ export class AudioQueue {
     });
   }
 
+  /** Speak `text` with the browser's voice, in order with the clips around it (D26). */
+  enqueueSpeech(text: string): void {
+    this.chain = this.chain.then(async () => {
+      await this.waitForScheduledAudio();
+      await speakWithBrowser(text);
+      if (this.ctx) this.endsAt = this.ctx.currentTime; // later clips start after the speech
+    });
+  }
+
   /** Resolves when everything queued so far has finished playing. */
   async idle(): Promise<void> {
     await this.chain;
+    await this.waitForScheduledAudio();
+  }
+
+  private async waitForScheduledAudio(): Promise<void> {
     const ctx = this.ctx;
     if (!ctx) return;
     const remainingMs = Math.max(0, (this.endsAt - ctx.currentTime) * 1000);
