@@ -1,3 +1,4 @@
+import asyncio
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
@@ -9,9 +10,12 @@ from fastapi.responses import JSONResponse
 from app.analysis.router import router as analysis_router
 from app.config import get_settings
 from app.db import create_pool
+from app.deps import get_analysis_llm
 from app.interview.router import router as interview_router
 from app.interview.socket import router as interview_socket_router
+from app.jobs.worker import Worker
 from app.llm import LLMBusyError, LLMError
+from app.report.service import report_handlers
 from app.resume.router import router as resume_router
 from app.speech.tts import KokoroTTS
 
@@ -26,9 +30,17 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     # One HTTP client for Kokoro: keeps connections warm between sentences.
     tts_http = httpx.AsyncClient(timeout=settings.tts_timeout_s)
     app.state.tts = KokoroTTS(tts_http, settings.kokoro_url, settings.kokoro_voice)
+    # Background jobs (interview reports) run in this process (D31).
+    worker_task = None
+    if settings.run_jobs:
+        handlers, on_failed = report_handlers(app.state.pool, get_analysis_llm())
+        worker_task = asyncio.create_task(Worker(app.state.pool, handlers, on_failed).run_forever())
     try:
         yield
     finally:
+        if worker_task:
+            worker_task.cancel()  # an interrupted job goes back to the queue (requeue_stale)
+            await asyncio.gather(worker_task, return_exceptions=True)
         await tts_http.aclose()
         await app.state.pool.close()
 

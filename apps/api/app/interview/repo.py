@@ -10,10 +10,12 @@ from pydantic import BaseModel
 
 from app.analysis.schema import MatchResult
 from app.interview.plan import InterviewPlan, Position
+from app.jobs import queue
 from app.jd.schema import JobProfile
 from app.resume.schema import ResumeProfile
 
 InterviewStatus = Literal["created", "in_progress", "evaluating", "completed", "failed"]
+EVALUATE_INTERVIEW = "evaluate_interview"  # job kind, handled in app/report/service.py
 
 
 class Interview(BaseModel):
@@ -186,11 +188,18 @@ async def save_interviewer_turn(db: asyncpg.Pool, user_id: UUID, interview_id: U
 
 
 async def finish(db: asyncpg.Pool, user_id: UUID, interview_id: UUID) -> None:
-    """in_progress -> evaluating. The report job (phase 9) takes it from here."""
-    await db.execute(
-        """
-        update interviews set status = 'evaluating', ended_at = now()
-        where id = $1 and user_id = $2 and status = 'in_progress'
-        """,
-        interview_id, user_id,
-    )  # fmt: skip
+    """in_progress -> evaluating, and queue the report job in the same transaction.
+
+    Transactional outbox: there's never an interview stuck in "evaluating" with
+    no job, or a job for an interview that didn't end (projectprep.md 5.12).
+    """
+    async with db.acquire() as conn, conn.transaction():
+        status = await conn.execute(
+            """
+            update interviews set status = 'evaluating', ended_at = now()
+            where id = $1 and user_id = $2 and status = 'in_progress'
+            """,
+            interview_id, user_id,
+        )  # fmt: skip
+        if status == "UPDATE 1":
+            await queue.enqueue(conn, EVALUATE_INTERVIEW, {"user_id": str(user_id), "interview_id": str(interview_id)})

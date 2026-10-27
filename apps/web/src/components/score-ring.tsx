@@ -5,7 +5,7 @@ const RADIUS = 52;
 const CIRCUMFERENCE = 2 * Math.PI * RADIUS;
 
 /** Circular 0–100 gauge. Pure SVG, so it renders on the server with no JS. */
-export function ScoreRing({ score }: { score: number | null }) {
+export function ScoreRing({ score, label = "match score" }: { score: number | null; label?: string }) {
   const filled = score == null ? 0 : (score / 100) * CIRCUMFERENCE;
 
   return (
@@ -26,7 +26,7 @@ export function ScoreRing({ score }: { score: number | null }) {
       <div className="absolute inset-0 grid place-items-center text-center">
         <span>
           <span className="block text-3xl font-semibold tabular-nums">{score ?? "n/a"}</span>
-          <span className="block text-xs text-muted-foreground">match score</span>
+          <span className="block text-xs text-muted-foreground">{label}</span>
         </span>
       </div>
     </div>

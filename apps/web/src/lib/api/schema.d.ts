@@ -82,10 +82,48 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        get?: never;
+        /** List Interviews */
+        get: operations["list_interviews_interviews_get"];
         put?: never;
         /** Create Interview */
         post: operations["create_interview_interviews_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/interviews/{interview_id}/report": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Report
+         * @description Polled by the report page: status is "evaluating" until the job finishes (5.12).
+         */
+        get: operations["get_report_interviews__interview_id__report_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/interviews/{interview_id}/report/retry": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Retry Report */
+        post: operations["retry_report_interviews__interview_id__report_retry_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -181,6 +219,29 @@ export interface components {
             /** Reason */
             reason: string;
         };
+        /** CompetencyScore */
+        CompetencyScore: {
+            /**
+             * Competency
+             * @enum {string}
+             */
+            competency: "communication" | "technical_depth" | "problem_solving" | "role_fit" | "behavioral";
+            /**
+             * Score
+             * @description 1-5, or null if the interview gave no evidence
+             */
+            score: number | null;
+            /**
+             * Rationale
+             * @description One or two sentences explaining the score
+             */
+            rationale: string;
+            /**
+             * Evidence
+             * @description Exact short quotes from the candidate
+             */
+            evidence: string[];
+        };
         /** Coverage */
         Coverage: {
             /** Matches */
@@ -247,6 +308,16 @@ export interface components {
             /** Detail */
             detail?: components["schemas"]["ValidationError"][];
         };
+        /** Improvement */
+        Improvement: {
+            /** Area */
+            area: string;
+            /**
+             * Advice
+             * @description One concrete thing to do differently next time
+             */
+            advice: string;
+        };
         /**
          * Insights
          * @description Written by the model; facts it claims are checked by code (projectprep.md, D14).
@@ -292,6 +363,30 @@ export interface components {
             /** Company */
             company: string | null;
         };
+        /** InterviewSummary */
+        InterviewSummary: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "created" | "in_progress" | "evaluating" | "completed" | "failed";
+            /** Job Title */
+            job_title: string | null;
+            /** Company */
+            company: string | null;
+            /** Overall Score */
+            overall_score: number | null;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+        };
         /** JobProfile */
         JobProfile: {
             /** Title */
@@ -336,6 +431,53 @@ export interface components {
             description: string;
             /** Technologies */
             technologies: string[];
+        };
+        /** QuestionFeedback */
+        QuestionFeedback: {
+            /** Question */
+            question: string;
+            /** Went Well */
+            went_well: string;
+            /** Missing */
+            missing: string;
+            /**
+             * Stronger Answer
+             * @description Outline of a stronger answer, using the candidate's own experience
+             */
+            stronger_answer: string;
+        };
+        /** Report */
+        Report: {
+            /**
+             * Overall Score
+             * @description 0-100, computed by code from competency scores
+             */
+            overall_score: number | null;
+            /**
+             * Insufficient
+             * @description True when the interview was too short to evaluate
+             */
+            insufficient: boolean;
+            /** Summary */
+            summary: string;
+            /** Competencies */
+            competencies: components["schemas"]["CompetencyScore"][];
+            /** Questions */
+            questions: components["schemas"]["QuestionFeedback"][];
+            /** Strengths */
+            strengths: string[];
+            /** Improvements */
+            improvements: components["schemas"]["Improvement"][];
+            metrics: components["schemas"]["SpeakingMetrics"];
+        };
+        /** ReportResponse */
+        ReportResponse: {
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "created" | "in_progress" | "evaluating" | "completed" | "failed";
+            report: components["schemas"]["Report"] | null;
         };
         /** RequirementMatch */
         RequirementMatch: {
@@ -410,6 +552,24 @@ export interface components {
              * @description Skills that satisfy this equally
              */
             alternatives: string[];
+        };
+        /** SpeakingMetrics */
+        SpeakingMetrics: {
+            /** Answers */
+            answers: number;
+            /** Words Per Minute */
+            words_per_minute: number | null;
+            /** Avg Answer Seconds */
+            avg_answer_seconds: number | null;
+            /**
+             * Short Answers
+             * @description Answers under 15 words
+             */
+            short_answers: number;
+            /** Filler Per 100 Words */
+            filler_per_100_words: number;
+            /** Top Fillers */
+            top_fillers: string[];
         };
         /** StoredAnalysis */
         StoredAnalysis: {
@@ -674,6 +834,26 @@ export interface operations {
             };
         };
     };
+    list_interviews_interviews_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["InterviewSummary"][];
+                };
+            };
+        };
+    };
     create_interview_interviews_post: {
         parameters: {
             query?: never;
@@ -694,6 +874,68 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["Interview"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_report_interviews__interview_id__report_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                interview_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ReportResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    retry_report_interviews__interview_id__report_retry_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                interview_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
                 };
             };
             /** @description Validation Error */
