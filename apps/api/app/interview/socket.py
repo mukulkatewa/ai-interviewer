@@ -20,6 +20,7 @@ from app.db import Db
 from app.deps import get_live_llm, get_stt, get_tts
 from app.interview import repo, script
 from app.interview.conversation import TurnReply, advance
+from app.interview.intent import wants_to_stop
 from app.interview.plan import InterviewPlan, normalize
 from app.interview.speaker import ACKNOWLEDGEMENTS, Speaker
 from app.interview.vocabulary import vocabulary_prompt
@@ -95,26 +96,69 @@ class InterviewSession:
         self.vocabulary = vocabulary_prompt(ctx.resume, ctx.job)  # D24, built once
         self.awaiting_answer = False  # binary answers are accepted only after our turn_end
         self.started = ctx.interview.status == "in_progress"
+        self.finished = False  # set once the interview is over; ends the read loop
 
     @property
     def interview_id(self) -> UUID:
         return self.ctx.interview.id
 
     async def run(self) -> None:
-        await self.ws.send_json({"type": "ready", "interview_id": str(self.interview_id), "resumable": self.started})
-        while True:
-            message = await _receive(self.ws)
-            if isinstance(message, bytes):
-                await self.on_answer(message)
-                continue
-            match message.get("type"):
-                case "start":
-                    await self.on_start()
-                case "end":
-                    await self.on_end()
-                    return
-                case _:
-                    await self.error("bad_message", "Unknown message.")
+        await self.ws.send_json(
+            {
+                "type": "ready",
+                "interview_id": str(self.interview_id),
+                "resumable": self.started,
+                "total": len(self.plan.questions),  # for "Question 3 of 8"
+            }
+        )
+        # Always reading, so "end" works even while a reply is still being spoken (D33).
+        # Handling messages one at a time left it unread until the reply finished, and the
+        # stale "your turn" that followed put the screen back into listening mode.
+        receive = asyncio.create_task(_receive(self.ws))
+        turn: asyncio.Task[None] | None = None
+        try:
+            while not self.finished:
+                waiting = {receive} if turn is None else {receive, turn}
+                done, _ = await asyncio.wait(waiting, return_when=asyncio.FIRST_COMPLETED)
+                if turn in done:
+                    turn.result()  # a failed turn raises here, where the connection handler can see it
+                    turn = None
+                if receive in done:
+                    message = receive.result()  # raises WebSocketDisconnect when the client leaves
+                    receive = asyncio.create_task(_receive(self.ws))
+                    turn = await self._dispatch(message, turn)
+        finally:
+            running = [t for t in (receive, turn) if t is not None]
+            for task in running:
+                task.cancel()
+            await asyncio.gather(*running, return_exceptions=True)
+
+    async def _dispatch(self, message: dict | bytes, turn: asyncio.Task[None] | None) -> asyncio.Task[None] | None:
+        """Start the work a message asks for. Returns the turn task that is now running, if any."""
+        if turn is not None and turn.done():
+            turn.result()
+            turn = None
+        busy = turn is not None
+        if isinstance(message, bytes):
+            if busy:
+                await self.error("not_your_turn", "Wait for the interviewer to finish.")
+                return turn
+            return asyncio.create_task(self.on_answer(message))
+        match message.get("type"):
+            case "start":
+                if busy:
+                    await self.error("already_started", "This interview already started.")
+                    return turn
+                return asyncio.create_task(self.on_start())
+            case "end":
+                if turn is not None:  # stop whatever is being said or worked out right now
+                    turn.cancel()
+                    await asyncio.gather(turn, return_exceptions=True)
+                await self.on_end()
+                return None
+            case _:
+                await self.error("bad_message", "Unknown message.")
+                return turn
 
     # --- events ---------------------------------------------------------------
 
@@ -171,6 +215,9 @@ class InterviewSession:
         await repo.save_candidate_turn(self.db, self.user.id, self.interview_id, turn, seconds, transcript.stt_ms,
                                        [s.model_dump() for s in transcript.segments])  # fmt: skip
         self.turns.append(turn)
+        if wants_to_stop(transcript.text):
+            await self.on_end()  # "I want to stop the interview" is the same as pressing End interview (D33)
+            return
         await self.reply_to_answer()
 
     async def reply_to_answer(self) -> None:
@@ -190,11 +237,12 @@ class InterviewSession:
             await self.give_turn()
 
     async def on_end(self) -> None:
-        """The candidate pressed "End interview"."""
+        """The candidate pressed "End interview", or asked to stop out loud."""
         if self.started:
             await self.speaker.say(script.ended_early(self.ctx.interview))
             await self.finish()
         else:
+            self.finished = True
             await self.ws.close()
 
     # --- helpers --------------------------------------------------------------
@@ -212,6 +260,7 @@ class InterviewSession:
         self.position = position
 
     async def finish(self) -> None:
+        self.finished = True
         await repo.finish(self.db, self.user.id, self.interview_id)
         await self.ws.send_json({"type": "ended", "interview_id": str(self.interview_id)})
         await self.ws.close()

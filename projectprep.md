@@ -250,6 +250,13 @@ Each decision: **what we chose → why → what we gave up.**
 - **Why:** the data already exists and is indexed. A Redis counter would be one more service and could drift from reality.
 - **Known gap:** "Delete all my data" also deletes the rows being counted, so it resets the limit. That's acceptable: it costs the user their whole history, and costs us at most a few extra calls.
 
+### D33. Ending works at any moment, by click or by voice
+- **Bug 1 (found by a user):** "End interview" did nothing on the first click. The socket handled one message at a time, so "end" sat unread until the interviewer finished the sentence batch they were speaking (up to ~15 s). The "your turn" signal that followed then flipped the screen back to listening, with the microphone already switched off.
+- **Bug 2 (found by a user):** saying "I want to stop the interview" did nothing. No code recognized it, so the model just asked the next question.
+- **Chose:** the socket always keeps reading. Each turn (speaking the intro, answering an answer) runs as a task. "end" **cancels the running turn**, then speaks the closing line and queues the report. The client also cuts its audio at once and ignores a stale "your turn".
+- **Voice stop is plain code** (`app/interview/intent.py`), not another model call: instant, free, testable. It only fires on an explicit request ("stop the interview", "I'm done", "let's wrap up", "I need to go") and never on a technical answer ("we stop the container before deleting the volume"). The rule is precision over recall: someone who wants out can always press End.
+- **Tests:** 36 phrase cases (17 stops, 19 technical answers that must not stop). Removing the "must end right after the command" rule fails 7 of them.
+
 ---
 
 ## 5. How each feature works (step by step)
@@ -535,7 +542,7 @@ One connection per interview: `wss://api.<domain>/interviews/{id}/ws`
 |---|---|---|---|
 | server → client | `reply_start` | `{}` | A new interviewer message begins (new caption bubble) |
 | server → client | `sentence` | `{seq, text, audio}` | Append `text` to the bubble. If `audio` is true, the next binary frame is its MP3; otherwise the browser speaks it (D26) |
-| server → client | `ready` | `{interview_id, resumable}` | `resumable: true` when reconnecting to an interview in progress |
+| server → client | `ready` | `{interview_id, resumable, total}` | `resumable: true` when reconnecting to an interview in progress; `total` is the number of planned questions (for "Question 3 of 8") |
 | server → client | `ended` | `{interview_id}` | Interview over; report being generated (phase 9) |
 | client → server | `end` | `{}` | Candidate ends early: closing line, then `ended` |
 
