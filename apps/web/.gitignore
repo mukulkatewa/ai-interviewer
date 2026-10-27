@@ -49,3 +49,7 @@ next-env.d.ts
 
 # local throwaway e2e scripts (a committed suite comes in phase 10)
 .e2e-*.mjs
+
+# Playwright output
+test-results/
+playwright-report/
