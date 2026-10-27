@@ -65,11 +65,11 @@ test("End interview works on the first click, even while the interviewer is spea
   await page.getByRole("button", { name: "Start mock interview" }).click();
   await expect(page).toHaveURL(/\/interviews\/[^/]+$/, { timeout: 60_000 });
   await page.getByRole("button", { name: "Start interview" }).click();
-  await expect(page.getByText("The interviewer is speaking").first()).toBeVisible({ timeout: 30_000 });
+  await expect(page.getByText("Interviewer is speaking")).toBeVisible({ timeout: 30_000 });
 
+  page.once("dialog", (d) => void d.accept());
   await page.getByRole("button", { name: "End interview" }).click();
-  await page.getByRole("button", { name: "End and get report" }).click();
-  await expect(page.getByText("Interview complete").first()).toBeVisible({ timeout: 15_000 });
+  await expect(page.getByText("Interview complete")).toBeVisible({ timeout: 15_000 });
 
   await page.waitForTimeout(4_000); // a stale "your turn" would have reappeared by now
   await expect(page.getByRole("button", { name: "Done answering" })).toBeHidden();
@@ -88,9 +88,9 @@ test("full voice interview through to the feedback report @slow", async ({ page,
   // The fake mic (playwright.config.ts) answers every question; silence ends each turn (D27).
   await expect(page.getByRole("button", { name: "Done answering" })).toBeVisible({ timeout: 90_000 });
   await expect(page.getByText("You", { exact: true }).first()).toBeVisible({ timeout: 90_000 });
-  await expect(page.getByText("Interview complete").first()).toBeVisible({ timeout: 18 * 60_000 });
+  await expect(page.getByText("Interview complete")).toBeVisible({ timeout: 18 * 60_000 });
 
-  await page.getByRole("link", { name: /view your report/i }).click();
+  await page.getByRole("link", { name: "View report" }).click();
   await expect(page.getByText("Competencies")).toBeVisible({ timeout: 3 * 60_000 }); // written by the job worker
   await expect(page.getByText("How you spoke")).toBeVisible();
   expect(page.url()).toContain(WEB);

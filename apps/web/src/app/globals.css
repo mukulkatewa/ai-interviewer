@@ -7,9 +7,9 @@
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
-  --font-sans: var(--font-instrument);
+  --font-sans: var(--font-geist-sans);
   --font-mono: var(--font-geist-mono);
-  --font-heading: var(--font-bricolage);
+  --font-heading: var(--font-sans);
   --color-sidebar-ring: var(--sidebar-ring);
   --color-sidebar-border: var(--sidebar-border);
   --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
@@ -48,78 +48,73 @@
   --radius-4xl: calc(var(--radius) * 2.6);
 }
 
-/* Palette (projectprep.md 5.14): cool porcelain surfaces, ink text, ultramarine for the brand and the
-   interviewer's voice, amber only for "your turn", deep navy for the interview room. */
 :root {
-  --background: oklch(0.975 0.004 255);
-  --foreground: oklch(0.2 0.025 265);
+  --background: oklch(1 0 0);
+  --foreground: oklch(0.145 0 0);
   --card: oklch(1 0 0);
-  --card-foreground: oklch(0.2 0.025 265);
+  --card-foreground: oklch(0.145 0 0);
   --popover: oklch(1 0 0);
-  --popover-foreground: oklch(0.2 0.025 265);
-  --primary: oklch(0.52 0.22 268);
-  --primary-foreground: oklch(0.99 0.005 268);
-  --secondary: oklch(0.95 0.008 262);
-  --secondary-foreground: oklch(0.25 0.03 265);
-  --muted: oklch(0.95 0.007 262);
-  --muted-foreground: oklch(0.5 0.02 262);
-  --accent: oklch(0.94 0.02 268);
-  --accent-foreground: oklch(0.3 0.1 268);
-  --destructive: oklch(0.56 0.22 27);
-  --border: oklch(0.91 0.01 262);
-  --input: oklch(0.9 0.012 262);
-  --ring: oklch(0.6 0.18 268);
-  --chart-1: oklch(0.52 0.22 268);
-  --chart-2: oklch(0.78 0.16 75);
-  --chart-3: oklch(0.6 0.12 170);
-  --chart-4: oklch(0.55 0.2 20);
-  --chart-5: oklch(0.4 0.05 265);
-  --radius: 0.75rem;
-  --sidebar: oklch(0.985 0.003 255);
-  --sidebar-foreground: oklch(0.2 0.025 265);
-  --sidebar-primary: oklch(0.52 0.22 268);
-  --sidebar-primary-foreground: oklch(0.99 0.005 268);
-  --sidebar-accent: oklch(0.94 0.02 268);
-  --sidebar-accent-foreground: oklch(0.3 0.1 268);
-  --sidebar-border: oklch(0.91 0.01 262);
-  --sidebar-ring: oklch(0.6 0.18 268);
-  /* Voice states, used by the orb and the room (blue: interviewer, amber: you). */
-  --voice-interviewer: oklch(0.68 0.19 268);
-  --voice-you: oklch(0.8 0.17 75);
+  --popover-foreground: oklch(0.145 0 0);
+  --primary: oklch(0.45 0.16 268);
+  --primary-foreground: oklch(0.985 0.01 268);
+  --secondary: oklch(0.97 0 0);
+  --secondary-foreground: oklch(0.205 0 0);
+  --muted: oklch(0.97 0 0);
+  --muted-foreground: oklch(0.556 0 0);
+  --accent: oklch(0.97 0 0);
+  --accent-foreground: oklch(0.205 0 0);
+  --destructive: oklch(0.577 0.245 27.325);
+  --border: oklch(0.922 0 0);
+  --input: oklch(0.922 0 0);
+  --ring: oklch(0.62 0.14 268);
+  --chart-1: oklch(0.87 0 0);
+  --chart-2: oklch(0.556 0 0);
+  --chart-3: oklch(0.439 0 0);
+  --chart-4: oklch(0.371 0 0);
+  --chart-5: oklch(0.269 0 0);
+  --radius: 0.625rem;
+  --sidebar: oklch(0.985 0 0);
+  --sidebar-foreground: oklch(0.145 0 0);
+  --sidebar-primary: oklch(0.205 0 0);
+  --sidebar-primary-foreground: oklch(0.985 0 0);
+  --sidebar-accent: oklch(0.97 0 0);
+  --sidebar-accent-foreground: oklch(0.205 0 0);
+  --sidebar-border: oklch(0.922 0 0);
+  --sidebar-ring: oklch(0.708 0 0);
 }
 
 .dark {
-  --background: oklch(0.16 0.025 268);
-  --foreground: oklch(0.96 0.006 262);
-  --card: oklch(0.2 0.03 268);
-  --card-foreground: oklch(0.96 0.006 262);
-  --popover: oklch(0.22 0.032 268);
-  --popover-foreground: oklch(0.96 0.006 262);
-  --primary: oklch(0.7 0.17 268);
-  --primary-foreground: oklch(0.16 0.04 268);
-  --secondary: oklch(0.26 0.03 268);
-  --secondary-foreground: oklch(0.96 0.006 262);
-  --muted: oklch(0.26 0.03 268);
-  --muted-foreground: oklch(0.72 0.02 262);
-  --accent: oklch(0.3 0.06 268);
-  --accent-foreground: oklch(0.92 0.04 268);
-  --destructive: oklch(0.7 0.19 22);
+  --background: oklch(0.145 0 0);
+  --foreground: oklch(0.985 0 0);
+  --card: oklch(0.205 0 0);
+  --card-foreground: oklch(0.985 0 0);
+  --popover: oklch(0.205 0 0);
+  --popover-foreground: oklch(0.985 0 0);
+  --primary: oklch(0.72 0.13 268);
+  --primary-foreground: oklch(0.2 0.05 268);
+  --secondary: oklch(0.269 0 0);
+  --secondary-foreground: oklch(0.985 0 0);
+  --muted: oklch(0.269 0 0);
+  --muted-foreground: oklch(0.708 0 0);
+  --accent: oklch(0.269 0 0);
+  --accent-foreground: oklch(0.985 0 0);
+  --destructive: oklch(0.704 0.191 22.216);
   --border: oklch(1 0 0 / 10%);
-  --input: oklch(1 0 0 / 14%);
-  --ring: oklch(0.65 0.15 268);
-  --chart-1: oklch(0.7 0.17 268);
-  --chart-2: oklch(0.8 0.16 75);
-  --chart-3: oklch(0.72 0.12 170);
-  --chart-4: oklch(0.68 0.19 20);
-  --chart-5: oklch(0.8 0.03 265);
-  --sidebar: oklch(0.2 0.03 268);
-  --sidebar-foreground: oklch(0.96 0.006 262);
-  --sidebar-primary: oklch(0.7 0.17 268);
-  --sidebar-primary-foreground: oklch(0.16 0.04 268);
-  --sidebar-accent: oklch(0.3 0.06 268);
-  --sidebar-accent-foreground: oklch(0.92 0.04 268);
+  --input: oklch(1 0 0 / 15%);
+  --ring: oklch(0.556 0 0);
+  --chart-1: oklch(0.87 0 0);
+  --chart-2: oklch(0.556 0 0);
+  --chart-3: oklch(0.439 0 0);
+  --chart-4: oklch(0.371 0 0);
+  --chart-5: oklch(0.269 0 0);
+  --sidebar: oklch(0.205 0 0);
+  --sidebar-foreground: oklch(0.985 0 0);
+  --sidebar-primary: oklch(0.488 0.243 264.376);
+  --sidebar-primary-foreground: oklch(0.985 0 0);
+  --sidebar-accent: oklch(0.269 0 0);
+  --sidebar-accent-foreground: oklch(0.985 0 0);
   --sidebar-border: oklch(1 0 0 / 10%);
-  --sidebar-ring: oklch(0.65 0.15 268);
+  --sidebar-ring: oklch(0.556 0 0);
 }
 
 @layer base {
@@ -131,41 +126,5 @@
   }
   html {
     @apply font-sans;
-  }
-  h1,
-  h2,
-  h3 {
-    font-family: var(--font-heading), var(--font-instrument), system-ui, sans-serif;
-    letter-spacing: -0.02em;
-    text-wrap: balance;
-  }
-  :focus-visible {
-    outline-color: var(--ring);
-  }
-}
-
-/* The interview room: motion is information (who is talking), so it stays on for the orb, but
-   anything decorative stops when the person asked their system for less motion. */
-@media (prefers-reduced-motion: reduce) {
-  .orb-ring,
-  .orb-spin {
-    animation: none !important;
-    transition: none !important;
-  }
-}
-
-@keyframes orb-breathe {
-  0%,
-  100% {
-    transform: scale(1);
-  }
-  50% {
-    transform: scale(1.04);
-  }
-}
-
-@keyframes orb-spin {
-  to {
-    transform: rotate(360deg);
   }
 }

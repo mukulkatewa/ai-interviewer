@@ -62,7 +62,7 @@ export default async function InterviewReportPage({ params }: PageProps<"/interv
     api.GET("/interviews/{interview_id}/report", path).then(unwrap),
   ]);
 
-  const title = [interview.job_title ?? "Mock interview", interview.company].filter(Boolean).join(", ");
+  const title = [interview.job_title ?? "Mock interview", interview.company].filter(Boolean).join(" · ");
   const header = (
     <header>
       <h1 className="text-2xl font-semibold tracking-tight">Interview report</h1>

@@ -9,7 +9,7 @@ Free, voice-based mock interviews personalized to your resume and a job descript
 
 Everything runs on free tiers: Groq (LLM + Whisper), self-hosted Kokoro TTS, Supabase, Vercel, an Oracle Cloud free VM.
 
-**In the interview room:** a ring that moves with the real audio level, live captions and transcript, a progress bar, and light and dark themes. You can end it by clicking **End interview** or by saying so ("I want to stop the interview"), and either works at any moment, even while the interviewer is speaking.
+**In the interview room:** live transcript, a pulsing indicator for whose turn it is, and "Done answering". You can end it by clicking **End interview** or by saying so ("I want to stop the interview"), and either works at any moment, even while the interviewer is speaking.
 
 **Design decisions and architecture: [`projectprep.md`](projectprep.md)** (D1–D32, each with what was chosen, why, and what was given up).
 Measured speech latency: [`docs/benchmarks/`](docs/benchmarks/). Deploying: [`docs/deploy.md`](docs/deploy.md). Launching: [`docs/launch.md`](docs/launch.md).
