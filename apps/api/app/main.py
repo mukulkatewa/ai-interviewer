@@ -1,4 +1,5 @@
 import asyncio
+import logging
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
@@ -7,6 +8,7 @@ from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
+from app.account import router as account_router
 from app.analysis.router import router as analysis_router
 from app.config import get_settings
 from app.db import create_pool
@@ -20,9 +22,20 @@ from app.resume.router import router as resume_router
 from app.speech.tts import KokoroTTS
 
 
+def _configure_logging(level: str) -> None:
+    """Make app.* logs visible (per-turn latency, job results) without changing uvicorn's loggers."""
+    handler = logging.StreamHandler()
+    handler.setFormatter(logging.Formatter("%(asctime)s %(levelname)s %(name)s: %(message)s"))
+    root = logging.getLogger("app")
+    root.setLevel(level)
+    root.addHandler(handler)
+    root.propagate = False  # don't print twice through uvicorn's root handler
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     settings = get_settings()
+    _configure_logging(settings.log_level)
     if not settings.database_url:
         # Fail at startup, not on the first user request.
         raise RuntimeError("DATABASE_URL is not set")
@@ -58,6 +71,7 @@ app.include_router(resume_router)
 app.include_router(analysis_router)
 app.include_router(interview_router)
 app.include_router(interview_socket_router)
+app.include_router(account_router)
 
 
 # LLM failures are handled here once, so routes contain only the happy path.

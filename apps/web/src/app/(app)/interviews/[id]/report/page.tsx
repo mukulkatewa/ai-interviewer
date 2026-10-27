@@ -1,8 +1,8 @@
 import type { Metadata } from "next";
-import Link from "next/link";
 
+import { ButtonLink } from "@/components/button-link";
+import { TrackOnMount } from "@/components/analytics";
 import { ScoreRing } from "@/components/score-ring";
-import { Button } from "@/components/ui/button";
 import type { Schemas } from "@/lib/api/client";
 import { getServerApi, unwrap } from "@/lib/api/server";
 import { cn } from "@/lib/utils";
@@ -76,9 +76,9 @@ export default async function InterviewReportPage({ params }: PageProps<"/interv
         {header}
         <div className="rounded-xl border p-8 text-center">
           <p className="font-medium">This interview isn&apos;t finished yet.</p>
-          <Button className="mt-4" nativeButton={false} render={<Link href={`/interviews/${id}`} />}>
+          <ButtonLink className="mt-4" href={`/interviews/${id}`}>
             Continue interview
-          </Button>
+          </ButtonLink>
         </div>
       </div>
     );
@@ -95,6 +95,7 @@ export default async function InterviewReportPage({ params }: PageProps<"/interv
   const m = report.metrics;
   return (
     <div className="space-y-10">
+      <TrackOnMount event="report_viewed" />
       <div className="flex flex-col gap-6 sm:flex-row sm:items-center">
         <ScoreRing score={report.overall_score} label="overall" />
         <div className="min-w-0">

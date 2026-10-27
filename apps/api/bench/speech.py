@@ -248,7 +248,7 @@ async def bench_llm(client: groq.AsyncGroq, runs: int) -> tuple[list[str], dict[
 # --- report ---------------------------------------------------------------------
 
 
-async def main(runs: int, out: Path | None) -> None:
+async def main(runs: int) -> str:
     client = groq.AsyncGroq(api_key=get_settings().groq_api_key, max_retries=0)
     async with httpx.AsyncClient(timeout=120) as http:
         cold, tts_rows, tts_first_byte = await bench_tts(http, runs)
@@ -303,10 +303,7 @@ async def main(runs: int, out: Path | None) -> None:
             "Target: under 2.5 s (projectprep.md §9).",
         ]
     )
-    print(report)
-    if out:
-        out.parent.mkdir(parents=True, exist_ok=True)
-        out.write_text(report + "\n")
+    return report
 
 
 if __name__ == "__main__":
@@ -314,4 +311,8 @@ if __name__ == "__main__":
     parser.add_argument("--runs", type=int, default=3)
     parser.add_argument("--out", type=Path)
     args = parser.parse_args()
-    asyncio.run(main(args.runs, args.out))
+    report = asyncio.run(main(args.runs))
+    print(report)
+    if args.out:
+        args.out.parent.mkdir(parents=True, exist_ok=True)
+        args.out.write_text(report + "\n")

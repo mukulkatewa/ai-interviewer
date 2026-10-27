@@ -10,8 +10,8 @@ from pydantic import BaseModel
 
 from app.analysis.schema import MatchResult
 from app.interview.plan import InterviewPlan, Position
-from app.jobs import queue
 from app.jd.schema import JobProfile
+from app.jobs import queue
 from app.resume.schema import ResumeProfile
 
 InterviewStatus = Literal["created", "in_progress", "evaluating", "completed", "failed"]

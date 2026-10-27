@@ -165,7 +165,9 @@ class InterviewSession:
             return await self.retry_turn("no_speech", "We didn't catch that. Please answer again.")
 
         await self.ws.send_json({"type": "transcript", "role": "candidate", "text": transcript.text})
-        turn = repo.Turn(seq=len(self.turns), role="candidate", question_index=self.position.question, text=transcript.text)
+        turn = repo.Turn(
+            seq=len(self.turns), role="candidate", question_index=self.position.question, text=transcript.text
+        )
         await repo.save_candidate_turn(self.db, self.user.id, self.interview_id, turn, seconds, transcript.stt_ms,
                                        [s.model_dump() for s in transcript.segments])  # fmt: skip
         self.turns.append(turn)

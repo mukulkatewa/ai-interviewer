@@ -245,6 +245,11 @@ Each decision: **what we chose → why → what we gave up.**
 - **Why:** the report takes 5–15 s of LLM time and must survive a closed tab and a server restart. Postgres already gives us durable, transactional queues; Redis/Celery would be two more services to run on a free VM for a few jobs an hour.
 - **Gave up:** a separate worker process. At our scale one process is fine, and the same SQL works when we split it out later.
 
+### D32. Limits counted from our own tables
+- **Chose:** count the user's rows created in the last 24 h (`resumes`, `analyses`, `interviews`) using the existing `(user_id, created_at)` indexes.
+- **Why:** the data already exists and is indexed. A Redis counter would be one more service and could drift from reality.
+- **Known gap:** "Delete all my data" also deletes the rows being counted, so it resets the limit. That's acceptable: it costs the user their whole history, and costs us at most a few extra calls.
+
 ---
 
 ## 5. How each feature works (step by step)
@@ -453,6 +458,47 @@ Weights: technical depth 30%, problem solving 20%, communication 20%, role fit 1
 
 **API:** `GET /interviews/{id}/report` → `{status, report}` (`evaluating` | `completed` | `failed`), polled by the page every 3 s. `POST /interviews/{id}/report/retry` re-queues a failed report. `GET /interviews` lists interviews for the dashboard.
 
+## 5.13 Going to production (phase 10)
+
+**Usage limits (D12, D32).** The API enforces them by counting the user's own rows from the last 24 hours, so there's no Redis and nothing to keep in sync:
+
+| Action | Per user per 24 h | Why |
+|---|---|---|
+| Upload a resume | 10 | Resume parsing spends `gpt-oss-120b` tokens |
+| Job match report | 10 | 2 LLM calls each |
+| Mock interview | 3 | The expensive one: ~20 LLM calls + ~10 Whisper calls |
+
+Over the limit → **429** with `Retry-After` (seconds until the oldest action in the window expires) and a clear message. The check runs **before** any LLM call.
+
+**"Delete all my data".** `DELETE /me/data` removes every resume, job description, analysis, interview, turn and report the user owns, plus their queued jobs, in one transaction. The login account itself is managed by Supabase. Deleting it needs the Supabase secret key, which the backend deliberately never loads (§8), so the login stays and the data goes.
+
+**Logs.** `app.*` loggers print at `INFO` with timestamps, so per-turn lines (`turn action=… llm_ms=… tts_ms=…`) and job results show up in `docker compose logs`. `bench/latency.py` turns the saved `interview_turns` latencies into p50/p95 numbers, the real figures for the resume.
+
+**Hosting**
+
+```
+Browser ──HTTPS──► Vercel (Next.js, free Hobby plan)
+   │
+   └──HTTPS/WSS──► Oracle Cloud Always Free VM (4 ARM cores, 24 GB)
+                     └─ Docker Compose:
+                         caddy  :443  automatic HTTPS (Let's Encrypt), proxies WebSockets
+                         api    :8000 FastAPI + background worker, one process (D30, D31)
+                         kokoro :8880 TTS, 4 CPUs / 4 threads (D23), internal only
+                   ──► Supabase (Postgres + Auth), Groq (LLM + Whisper)
+```
+
+- **Free domain:** `api.<VM-IP>.sslip.io` resolves to the VM with no signup, and Caddy can get a real certificate for it.
+- **API image:** multi-stage `uv` build from the lockfile (`--frozen`), non-root user, `.dockerignore` keeps `.env` out of the image. One uvicorn process (D30, D31).
+- **Web security headers:** no framing, strict referrer, microphone allowed only on our own origin.
+
+**CI (GitHub Actions)** on every push and PR:
+- **API:** a Postgres 17 service container and `pytest` against the real migrations. Fakes stand in for Groq and Kokoro, so no secrets are needed.
+- **Web:** `tsc`, `eslint`, `next build`.
+
+**End-to-end suite** (`apps/web/e2e/`, Playwright). The browser checks used during development, committed. Real login, a fake microphone, a whole interview through to the report. It needs the running stack and the Supabase service key, so it runs on demand (`npm run e2e`), not in CI.
+
+**Analytics (optional).** If `NEXT_PUBLIC_POSTHOG_KEY` is set, PostHog (free tier) records page views and four product events: `analysis_created`, `interview_started`, `interview_completed`, `report_viewed`. Visitors are anonymous (no email or name sent) and autocapture is off. Without the key the analytics code isn't even loaded.
+
 ---
 
 ## 6. WebSocket protocol
@@ -637,10 +683,10 @@ Each step ends with something we can **run and test**.
 | 5 | ✅ Speech spike | Script measures Groq Whisper + Kokoro latency on our machine |
 | 6 | ✅ TTS + WebSocket | Server can speak a question to the browser |
 | 7 | ✅ STT + VAD | Browser sends an answer, server shows the transcript |
-| 8 | SLM interview loop | Full voice interview with phases and follow-ups |
-| 9 | Evaluation report | Rubric scores + evidence + speaking metrics |
-| 10 | Deploy + limits + analytics | Live URL, quotas, PostHog |
-| 11 | Launch | Share with students, collect feedback |
+| 8 | ✅ SLM interview loop | Full voice interview with phases and follow-ups |
+| 9 | ✅ Evaluation report | Rubric scores + evidence + speaking metrics |
+| 10 | ✅ Limits, CI, deploy files, analytics | Code and guides done; going live needs your Oracle VM + Vercel (docs/deploy.md) |
+| 11 | Launch (you) | Checklist in docs/launch.md: friends first, then wider |
 
 ---
 

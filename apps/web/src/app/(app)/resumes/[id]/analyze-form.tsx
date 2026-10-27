@@ -8,6 +8,7 @@ import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { browserApi } from "@/lib/api/browser";
+import { track } from "@/lib/analytics";
 import { errorMessage } from "@/lib/api/client";
 
 const MIN_CHARS = 50; // mirrors AnalyzeRequest.job_description min_length
@@ -28,6 +29,7 @@ export function AnalyzeForm({ resumeId }: { resumeId: string }) {
       setPending(false);
       return toast.error(errorMessage(error));
     }
+    track("analysis_created", { score: data.match.score ?? -1 });
     // Keep the button disabled through navigation so it can't be double-submitted.
     router.push(`/analyses/${data.id}`);
   }

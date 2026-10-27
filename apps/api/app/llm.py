@@ -5,8 +5,8 @@ tests can pass a fake and we can swap providers without touching callers.
 """
 
 import json
-from functools import lru_cache
 from collections.abc import AsyncIterator
+from functools import lru_cache
 from typing import Literal, Protocol, TypeVar
 
 import groq
@@ -49,9 +49,8 @@ def create_groq(api_key: str) -> groq.AsyncGroq:
 @lru_cache
 def _schema_instructions(schema: type[BaseModel]) -> str:
     # Building the JSON Schema walks the whole model; do it once per type, not per request.
-    return (
-        "Respond with a single JSON object that matches this JSON Schema:\n"
-        + json.dumps(schema.model_json_schema(), separators=(",", ":"))
+    return "Respond with a single JSON object that matches this JSON Schema:\n" + json.dumps(
+        schema.model_json_schema(), separators=(",", ":")
     )
 
 

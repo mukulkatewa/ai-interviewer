@@ -1,7 +1,6 @@
 import type { Metadata } from "next";
-import Link from "next/link";
 
-import { Button } from "@/components/ui/button";
+import { ButtonLink } from "@/components/button-link";
 import { getServerApi, unwrap } from "@/lib/api/server";
 import { InterviewRoom } from "./interview-room";
 
@@ -27,9 +26,9 @@ export default async function InterviewPage({ params }: PageProps<"/interviews/[
       ) : (
         <div className="rounded-xl border p-8 text-center">
           <p className="font-medium">This interview is finished.</p>
-          <Button className="mt-4" nativeButton={false} render={<Link href={`/interviews/${interview.id}/report`} />}>
+          <ButtonLink className="mt-4" href={`/interviews/${interview.id}/report`}>
             View report
-          </Button>
+          </ButtonLink>
         </div>
       )}
     </div>

@@ -1,8 +1,8 @@
 "use client";
 
-import Link from "next/link";
 import { useEffect, useRef } from "react";
 
+import { ButtonLink } from "@/components/button-link";
 import { Button } from "@/components/ui/button";
 import { type Status, useInterviewSocket } from "@/lib/interview/use-interview-socket";
 import { cn } from "@/lib/utils";
@@ -36,9 +36,9 @@ export function InterviewRoom({ interviewId }: { interviewId: string }) {
       <div className="rounded-2xl border bg-card px-6 py-12 text-center">
         <p className="text-lg font-medium">Interview complete</p>
         <p className="mt-1 text-muted-foreground">Your feedback report is being prepared. It takes about a minute.</p>
-        <Button className="mt-6" nativeButton={false} render={<Link href={`/interviews/${interviewId}/report`} />}>
+        <ButtonLink className="mt-6" href={`/interviews/${interviewId}/report`}>
           View report
-        </Button>
+        </ButtonLink>
       </div>
     );
   }

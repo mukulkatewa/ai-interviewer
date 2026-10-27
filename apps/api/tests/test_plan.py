@@ -19,6 +19,8 @@ def test_normalize_orders_phases_and_caps_counts():
 
 
 def test_normalize_fills_missing_phases_with_fallbacks():
-    plan = normalize(InterviewPlan(questions=[q("role_skills", 0), PlannedQuestion(phase="behavioral", question="  ", focus="f")]))
+    plan = normalize(
+        InterviewPlan(questions=[q("role_skills", 0), PlannedQuestion(phase="behavioral", question="  ", focus="f")])
+    )
 
     assert plan.questions == [FALLBACKS["resume_deep_dive"], q("role_skills", 0), FALLBACKS["behavioral"]]

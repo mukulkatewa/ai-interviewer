@@ -14,7 +14,6 @@ from app.models import ApiModel
 from app.report.schema import Report
 
 
-
 class EvaluationInputs(BaseModel):
     plan: InterviewPlan
     job: JobProfile
@@ -56,7 +55,9 @@ async def load_for_evaluation(db: asyncpg.Pool, user_id: UUID, interview_id: UUI
         interview_id, user_id,
     )  # fmt: skip
     return EvaluationInputs(
-        plan=InterviewPlan.model_validate_json(head["plan"]) if head["plan"] else normalize(InterviewPlan(questions=[])),
+        plan=InterviewPlan.model_validate_json(head["plan"])
+        if head["plan"]
+        else normalize(InterviewPlan(questions=[])),
         job=JobProfile.model_validate_json(head["job"]),
         turns=[Turn(**{k: r[k] for k in Turn.model_fields}) for r in rows],
         answers=[(r["text"], r["audio_seconds"]) for r in rows if r["role"] == "candidate"],

@@ -15,6 +15,9 @@ from app.deps import get_analysis_llm, get_jd_llm, get_resume_llm
 from app.main import app
 from app.resume.schema import ResumeProfile
 
+# Interview fakes and fixtures (fakes, analysis_id, interview_id) for every test module.
+pytest_plugins = ["tests.interview_fixtures"]
+
 # Local Postgres from infra/docker-compose.yml. Never point this at Supabase:
 # the suite drops and recreates schemas.
 TEST_DATABASE_URL = os.getenv("TEST_DATABASE_URL", "postgresql://postgres:postgres@localhost:54329/postgres")
@@ -120,7 +123,9 @@ def client(database, login, monkeypatch):
     """
     # Truncating auth.users cascades to every user-owned table; jobs has no user_id (D31), so it's listed too.
     asyncio.run(
-        _run_sql("truncate auth.users, public.jobs cascade", f"insert into auth.users values ('{USER_A}'), ('{USER_B}')")
+        _run_sql(
+            "truncate auth.users, public.jobs cascade", f"insert into auth.users values ('{USER_A}'), ('{USER_B}')"
+        )
     )
     monkeypatch.setattr(get_settings(), "database_url", database)
     monkeypatch.setattr(get_settings(), "run_jobs", False)  # tests run the worker explicitly
