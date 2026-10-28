@@ -300,6 +300,43 @@ Each decision: **what we chose → why → what we gave up.**
 - **Second layer (optional):** `pg_cron` inside Supabase writing the same row daily (docs/deploy.md). Cheap insurance, because the exact definition of "activity" is not documented precisely.
 - **Not a substitute for backups:** free projects have no automatic backups to rely on. A scheduled `pg_dump` is a separate item.
 
+### D40. Content-Security-Policy and HSTS
+- **Decision:** `next.config.ts` sends a CSP on every response: scripts, styles, images, media and workers from our own origin only; connections only to our API (HTTP and WebSocket), Supabase, and PostHog when a key is set; no framing, no plugins, forms only to ourselves. Plus HSTS.
+- **The honest compromise:** `script-src` includes `'unsafe-inline'`, because Next.js ships small inline bootstrap scripts and a per-request nonce would make every page dynamic (no prerendering, slower). The policy still stops the high-value attack: loading a script from, or sending data to, any other origin. `'wasm-unsafe-eval'` exists only for the voice-detection model (onnxruntime WebAssembly).
+- **Verified, not assumed:** a browser test runs the whole interview (upload, plan, microphone, voice detection, audio playback, sockets) and fails on any CSP console error; a second check showed the browser really blocks a fetch and a script from another origin.
+- **When you add a service** (analytics, error tracking, a CDN) its origin must be added in `connectSources()`, or the browser will block it.
+
+### D41. Wait out a short rate limit instead of failing the request
+- **Problem:** the free model tier allows ~8k tokens a minute. Upload a resume, analyze, start an interview within a minute and one of those requests got a 503, even though waiting 5 seconds would have worked. The resume-only flow (D36) makes that sequence more likely.
+- **Decision:** `PatientLLM` wraps the request-path model clients. When the provider says "retry in N s" and N fits in `LLM_PATIENCE_S` (20 s), it waits and tries again; a longer wait, or a total over the budget, is raised unchanged (a 503 with `Retry-After`, D22). The live conversation is not wrapped (it must never stall) and the report worker has its own, longer patience (D22).
+- **Tests:** waits once and succeeds; won't hold a request for a 45 s wait (and doesn't sleep first); the total wait is bounded.
+
+### D42. Connection limits and a cap on live interviews
+- **Per address:** at most `WS_MAX_PER_IP` (20) interview sockets from one IP (the real address arrives through Caddy's forwarded headers). A flood is refused with a clear message, cheaply, before any database work.
+- **Overall:** at most `MAX_LIVE_INTERVIEWS` interviews at once, because speech runs on a few CPUs. Measured with `bench/tts_concurrency.py` (`docs/benchmarks/tts-concurrency-2026-10-29.md`): the time per spoken sentence grows almost in proportion to the number of interviews (2.8 s alone, 5.3 s with two, 12 s with six), so the default is **2**, not a comfortable-sounding 6. A reconnecting user (the same interview) never needs a new slot.
+- **The user sees:** "All interview rooms are full right now. Please try again in a few minutes." (close code 1013; the browser does not retry it).
+- **Honest limit:** the numbers come from a development machine. Re-run the benchmark on the production VM and set `MAX_LIVE_INTERVIEWS` from it.
+
+### D43. Deploys and restarts
+- **Server:** on shutdown every live interview socket is closed with the standard "service restart" code (1012), uvicorn waits at most 10 s, and Docker allows 15 s. Every turn is already saved, so nothing is lost; reconnecting resumes and the interviewer repeats the last question (D30, 5.11).
+- **Browser:** today a dropped connection shows "Connection lost. Reload the page to continue where you left off." Automatic reconnection with backoff was designed (the close codes already distinguish a restart from a refusal) but not shipped, because it changes the interview hook and could not be verified in a browser in this round. It is the first item on the roadmap.
+
+### D44. Error tracking
+- **Decision:** Sentry, only when `SENTRY_DSN` is set. It is configured to send the exception, stack trace and route, nothing else: no request bodies (resumes, audio), no cookies or headers, no user email or IP, no performance tracing. A `before_send` hook strips those again as a second line of defense, with tests.
+- **Not done:** browser-side error tracking (needs a browser check and a CSP entry for Sentry's ingest host, D40).
+
+### D45. Backups
+- **Why:** the free Supabase plan should not be assumed to keep backups, and the keep-alive (D39) prevents a pause but protects against nothing else.
+- **Decision:** `scripts/backup.sh` runs on the VM from cron (credentials never go to GitHub). It dumps the app data and the user accounts to two files, checks they are real before keeping them, keeps 14 days, and writes owner-only files. `scripts/restore.sh` restores into an **empty** database and refuses otherwise.
+- **Verified by doing it:** back up, restore into a scratch database, compare tables and rows. That found a real bug (pg_dump's `CREATE SCHEMA public` fails on any real target), now handled.
+- **Honest limit:** the backups live on the VM's disk. Copy them off the VM (rclone to any free cloud storage) or download one now and then.
+
+### D46. A second provider behind the same interfaces
+- **Decision:** `FALLBACK_LLM_*` and `FALLBACK_STT_*` add a second provider with an OpenAI-style API (Cerebras and OpenRouter have free tiers; Gemini and others offer compatible endpoints). It answers only when the main one is rate limited or fails. Reuses the Groq classes' logic, so JSON validation and retries are identical.
+- **Streaming rule:** the second provider takes over a live reply only if the first failed before saying anything. Half an answer from one model followed by a whole one from another would be spoken twice.
+- **Not done:** a local speech-to-text (faster-whisper on the VM): it competes with Kokoro for the same CPUs, and with only 2 interview slots (D42) that trade needs measuring first. The STT fallback today is a hosted OpenAI-style endpoint.
+- **Not verified live:** no second provider key was available, so this is covered by unit tests with fakes only. Try it once with a real key before relying on it.
+
 ---
 
 ## 5. How each feature works (step by step)

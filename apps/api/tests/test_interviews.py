@@ -148,6 +148,34 @@ def test_socket_hides_other_users_interview(client, fakes, interview_id):
         assert closed_with(ws) == 4404
 
 
+# --- limits (D42) ------------------------------------------------------------------
+
+
+def test_a_full_server_refuses_new_interviews_but_lets_a_live_one_reconnect(client, fakes, interview_id, monkeypatch):
+    monkeypatch.setattr(get_settings(), "max_live_interviews", 1)
+    other = client.post("/interviews", json={"analysis_id": client.get("/analyses").json()[0]["id"]}).json()["id"]
+
+    with connect(client, interview_id) as first:
+        assert auth(first)["type"] == "ready"  # takes the only slot
+        with connect(client, other) as second:
+            second.send_json({"type": "auth", "token": "token-a"})
+            assert second.receive_json()["code"] == "busy"
+            assert closed_with(second) == 1013
+        with connect(client, interview_id) as same_tab:  # same interview: takes over, doesn't need a new slot
+            assert auth(same_tab)["type"] == "ready"
+
+
+def test_one_address_cannot_hold_unlimited_sockets(client, fakes, interview_id, monkeypatch):
+    monkeypatch.setattr(get_settings(), "ws_max_per_ip", 1)
+    with connect(client, interview_id) as first:
+        assert auth(first)["type"] == "ready"
+        with connect(client, interview_id) as second:
+            assert second.receive_json()["code"] == "busy"
+            assert closed_with(second) == 1013
+    with connect(client, interview_id) as after:  # the slot is released when the first one leaves
+        assert auth(after)["type"] == "ready"
+
+
 # --- the conversation -----------------------------------------------------------
 
 

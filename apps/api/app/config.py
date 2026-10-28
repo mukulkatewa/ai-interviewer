@@ -49,13 +49,33 @@ class Settings(BaseSettings):
     limit_resumes_per_day: int = 10
     limit_analyses_per_day: int = 10
     limit_interviews_per_day: int = 3
+    # Optional second providers (D46): used when the main one is rate limited or failing. Any service with an
+    # OpenAI-style API works, e.g. Cerebras (https://api.cerebras.ai/v1) for the model, or an OpenAI-style
+    # Whisper endpoint for speech. Leave blank to turn off.
+    fallback_llm_base_url: str = ""
+    fallback_llm_api_key: str = ""
+    fallback_llm_model: str = ""
+    fallback_llm_effort: ReasoningEffort | None = "low"  # set empty for models without reasoning_effort
+    fallback_stt_base_url: str = ""
+    fallback_stt_api_key: str = ""
+    fallback_stt_model: str = "whisper-1"
+    # Longest we wait on a rate limit inside one request before answering 503 (D41).
+    llm_patience_s: float = 20.0
     # How the feedback report is produced (D38): "single" = one model call, "graph" = LangGraph pipeline.
     report_engine: Literal["single", "graph"] = "single"
+    # Error tracking (D44): off unless a DSN is set. `environment` just labels events.
+    sentry_dsn: str = ""
+    environment: str = "development"
     log_level: str = "INFO"
     # Run the background job worker in this process (D31). Off in tests, which drive it directly.
     run_jobs: bool = True
     # How long a new interview WebSocket may stay open without sending `auth`.
     ws_auth_timeout_s: float = 10.0
+    # Connection limits (D42). Per client address, and live interviews across the whole server.
+    # Measured (docs/benchmarks/tts-concurrency-2026-10-29.md): Kokoro on 4 CPUs slows almost in
+    # proportion to the number of interviews, so 2 is the honest default. Re-measure on the production VM.
+    ws_max_per_ip: int = 20
+    max_live_interviews: int = 2
 
     # Browser origins allowed to call the API (D19). JSON list in env, e.g.
     # CORS_ORIGINS='["https://app.example.com"]'. Never "*": we send credentials.

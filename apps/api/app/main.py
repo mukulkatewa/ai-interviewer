@@ -12,11 +12,13 @@ from app.account import router as account_router
 from app.analysis.router import router as analysis_router
 from app.config import get_settings
 from app.db import create_pool
-from app.deps import get_analysis_llm
+from app.deps import get_report_llm
 from app.interview.router import router as interview_router
+from app.interview.socket import close_all_for_restart
 from app.interview.socket import router as interview_socket_router
 from app.jobs.worker import Worker
 from app.llm import LLMBusyError, LLMError
+from app.observability import init_error_tracking
 from app.report.service import report_handlers
 from app.resume.router import router as resume_router
 from app.speech.tts import KokoroTTS
@@ -36,6 +38,7 @@ def _configure_logging(level: str) -> None:
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     settings = get_settings()
     _configure_logging(settings.log_level)
+    init_error_tracking(settings.sentry_dsn, settings.environment)
     if not settings.database_url:
         # Fail at startup, not on the first user request.
         raise RuntimeError("DATABASE_URL is not set")
@@ -46,11 +49,12 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     # Background jobs (interview reports) run in this process (D31).
     worker_task = None
     if settings.run_jobs:
-        handlers, on_failed = report_handlers(app.state.pool, get_analysis_llm())
+        handlers, on_failed = report_handlers(app.state.pool, get_report_llm())
         worker_task = asyncio.create_task(Worker(app.state.pool, handlers, on_failed).run_forever())
     try:
         yield
     finally:
+        await close_all_for_restart()  # a deploy: clients reconnect and resume (D43)
         if worker_task:
             worker_task.cancel()  # an interrupted job goes back to the queue (requeue_stale)
             await asyncio.gather(worker_task, return_exceptions=True)
@@ -95,4 +99,18 @@ async def llm_failed(_: Request, e: LLMError) -> JSONResponse:
 
 @app.get("/health")
 async def health() -> dict[str, str]:
+    """Liveness: the process is up. Cheap and dependency-free, so a restart loop never hinges on the database."""
     return {"status": "ok"}
+
+
+@app.get("/ready", response_model=None)
+async def ready(request: Request) -> JSONResponse | dict[str, str]:
+    """Readiness: can we serve users? The database is required (503 without it). TTS is reported but not
+    required: when it is down, interviews fall back to browser speech (D26). Point uptime monitors here."""
+    try:
+        await asyncio.wait_for(request.app.state.pool.fetchval("select 1"), timeout=3)
+    except Exception as e:  # noqa: BLE001 - any failure, including a timeout, means "not ready"
+        logging.getLogger(__name__).warning("not ready: %r", e)
+        return JSONResponse({"status": "unavailable", "database": "down"}, status_code=503)
+    tts = "up" if await request.app.state.tts.healthy() else "down"
+    return {"status": "ok", "database": "up", "tts": tts}

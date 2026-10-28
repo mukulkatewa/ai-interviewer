@@ -26,7 +26,15 @@ class KokoroTTS:
     def __init__(self, http: httpx.AsyncClient, base_url: str, voice: str):
         self._http = http
         self._url = f"{base_url.rstrip('/')}/v1/audio/speech"
+        self._health_url = f"{base_url.rstrip('/')}/health"
         self._voice = voice
+
+    async def healthy(self) -> bool:
+        """Is Kokoro answering? Short timeout: this feeds /ready, which monitors poll often."""
+        try:
+            return (await self._http.get(self._health_url, timeout=2.0)).is_success
+        except httpx.HTTPError:
+            return False
 
     async def synthesize(self, text: str) -> bytes:
         body = {"model": "kokoro", "input": text, "voice": self._voice, "response_format": "mp3"}

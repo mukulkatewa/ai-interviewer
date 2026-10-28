@@ -4,10 +4,11 @@ Feature code depends on the `LLMClient` protocol, never on Groq directly, so
 tests can pass a fake and we can swap providers without touching callers.
 """
 
+import asyncio
 import json
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Awaitable, Callable
 from functools import lru_cache
-from typing import Literal, Protocol, TypeVar
+from typing import Any, Literal, Protocol, TypeVar
 
 import groq
 from pydantic import BaseModel, ValidationError
@@ -40,6 +41,31 @@ class TextStreamer(Protocol):
         ...
 
 
+class PatientLLM:
+    """Waits out a short rate limit instead of failing the request (D41).
+
+    The free tier allows ~8k tokens a minute per model, so a user who uploads a resume and starts an
+    interview straight away can brush against it. The provider says how long to wait; if that fits in
+    `max_wait_s` we wait and try again, otherwise the error goes up unchanged (a 503 with Retry-After).
+    Only for request-path calls: the live conversation must never stall, and the job worker has its own
+    patience (D22).
+    """
+
+    def __init__(self, inner: LLMClient, max_wait_s: float, sleep: Callable[[float], Awaitable[None]] = asyncio.sleep):
+        self._inner, self._max_wait_s, self._sleep = inner, max_wait_s, sleep
+
+    async def complete_json(self, system: str, user: str, schema: type[T]) -> T:
+        waited = 0.0
+        while True:
+            try:
+                return await self._inner.complete_json(system, user, schema)
+            except LLMBusyError as e:
+                if waited + e.retry_after_s > self._max_wait_s:
+                    raise
+                waited += e.retry_after_s
+                await self._sleep(e.retry_after_s)
+
+
 def create_groq(api_key: str) -> groq.AsyncGroq:
     # One retry absorbs a brief blip. More would hide a quota wall behind a
     # long silent wait (we measured 45 s); failing fast lets us tell the user (D22).
@@ -54,7 +80,7 @@ def _schema_instructions(schema: type[BaseModel]) -> str:
     )
 
 
-def _retry_after(e: groq.RateLimitError) -> int:
+def retry_after_seconds(e: Any) -> int:
     try:
         return max(1, round(float(e.response.headers.get("retry-after", ""))))
     except ValueError:
@@ -66,11 +92,18 @@ class GroqClient:
 
     The AsyncGroq instance is shared by all jobs: it holds the HTTP connection
     pool, so every call reuses warm connections.
+
+    Any SDK with the same `chat.completions.create` shape works: a subclass only names its own
+    error types (see app/fallback.py).
     """
+
+    _provider = "Groq"
+    _rate_limit: type[Exception] = groq.RateLimitError
+    _api_error: type[Exception] = groq.APIError
 
     def __init__(
         self,
-        client: groq.AsyncGroq,
+        client: Any,
         model: str,
         reasoning_effort: ReasoningEffort | None = None,
         max_attempts: int = 2,
@@ -103,10 +136,10 @@ class GroqClient:
                     temperature=0,  # structured output should be repeatable, not creative
                     **self._extra,
                 )
-            except groq.RateLimitError as e:
-                raise LLMBusyError(_retry_after(e)) from e
-            except groq.APIError as e:
-                raise LLMError(f"Groq request failed: {e}") from e
+            except self._rate_limit as e:
+                raise LLMBusyError(retry_after_seconds(e)) from e
+            except self._api_error as e:
+                raise LLMError(f"{self._provider} request failed: {e}") from e
 
             raw = resp.choices[0].message.content or ""
             try:
@@ -131,10 +164,10 @@ class GroqClient:
                 temperature=0.6,  # spoken replies should vary a little, unlike extraction
                 **self._extra,
             )
-        except groq.RateLimitError as e:
-            raise LLMBusyError(_retry_after(e)) from e
-        except groq.APIError as e:
-            raise LLMError(f"Groq request failed: {e}") from e
+        except self._rate_limit as e:
+            raise LLMBusyError(retry_after_seconds(e)) from e
+        except self._api_error as e:
+            raise LLMError(f"{self._provider} request failed: {e}") from e
 
         try:
             async for chunk in stream:
@@ -142,5 +175,5 @@ class GroqClient:
                 delta = chunk.choices[0].delta.content if chunk.choices else None
                 if delta:
                     yield delta
-        except groq.APIError as e:
-            raise LLMError(f"Groq stream failed: {e}") from e
+        except self._api_error as e:
+            raise LLMError(f"{self._provider} stream failed: {e}") from e

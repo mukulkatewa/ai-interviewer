@@ -9,10 +9,12 @@ dependencies = [
     "fastapi>=0.162.0",
     "groq>=1.7.0",
     "langgraph>=1.2.18",
+    "openai>=3.40.0",
     "pydantic-settings>=2.16.1",
     "pyjwt[crypto]>=2.15.1",
     "pymupdf>=2.0",
     "python-multipart>=0.0.32",
+    "sentry-sdk[fastapi]>=2.73.0",
     "uvicorn[standard]>=0.54.0",
 ]
 

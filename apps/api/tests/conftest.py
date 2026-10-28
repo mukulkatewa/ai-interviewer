@@ -3,6 +3,10 @@ import os
 import uuid
 from pathlib import Path
 
+# Tests must not depend on a developer's .env: CI has none. A syntactically valid URL is enough, because
+# tokens are never really verified here (tests swap the verifier). Set before app.config is imported.
+os.environ.setdefault("SUPABASE_URL", "https://test.supabase.co")
+
 import asyncpg
 import pymupdf
 import pytest

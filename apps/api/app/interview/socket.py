@@ -20,6 +20,7 @@ from app.db import Db
 from app.deps import get_live_llm, get_stt, get_tts
 from app.interview import repo, script
 from app.interview.conversation import TurnReply, advance
+from app.interview.gate import ConnectionGate
 from app.interview.intent import wants_to_stop
 from app.interview.plan import InterviewPlan, normalize
 from app.interview.speaker import ACKNOWLEDGEMENTS, Speaker
@@ -34,6 +35,7 @@ router = APIRouter()
 
 
 class Close(IntEnum):
+    SERVICE_RESTART = 1012  # standard code: the browser reconnects by itself and resumes (D43)
     BAD_MESSAGE = 4400
     UNAUTHORIZED = 4401
     NOT_FOUND = 4404
@@ -43,6 +45,25 @@ class Close(IntEnum):
 
 # One live socket per interview in this process (D30): a new tab takes over.
 _live: dict[UUID, WebSocket] = {}
+_gates: dict[int, ConnectionGate] = {}  # by per-IP limit, so tests can use their own limit
+
+
+def _gate(per_ip: int) -> ConnectionGate:
+    return _gates.setdefault(per_ip, ConnectionGate(per_ip))
+
+
+async def close_all_for_restart() -> None:
+    """On shutdown (a deploy): tell every live interview to reconnect, instead of letting it time out."""
+    sockets = list(_live.values())
+    await asyncio.gather(
+        *(ws.close(Close.SERVICE_RESTART, "Server restarting") for ws in sockets), return_exceptions=True
+    )
+
+
+async def _busy(ws: WebSocket, message: str) -> None:
+    """Refuse politely: the browser shows the message and does not auto-retry a 1013 (D42)."""
+    await ws.send_json({"type": "error", "code": "busy", "message": message})
+    await ws.close(Close.TRY_AGAIN_LATER, "Busy")
 
 
 async def _receive(ws: WebSocket) -> dict[str, Any] | bytes:
@@ -290,6 +311,10 @@ async def interview_socket(
     settings: Annotated[Settings, Depends(get_settings)],
 ) -> None:
     await ws.accept()
+    ip = ws.client.host if ws.client else "unknown"
+    gate = _gate(settings.ws_max_per_ip)
+    if not gate.enter(ip):
+        return await _busy(ws, "Too many connections from your network. Close other tabs and try again.")
     try:
         user = await _authenticate(ws, verify, settings.ws_auth_timeout_s)
         if user is None:
@@ -304,6 +329,9 @@ async def interview_socket(
             return
 
         previous = _live.get(interview_id)
+        if previous is None and len(_live) >= settings.max_live_interviews:
+            logger.warning("at capacity: %d live interviews", len(_live))
+            return await _busy(ws, "All interview rooms are full right now. Please try again in a few minutes.")
         _live[interview_id] = ws
         if previous is not None:
             await previous.close(Close.TAKEN_OVER, "Opened in another tab")
@@ -315,3 +343,5 @@ async def interview_socket(
                 del _live[interview_id]
     except WebSocketDisconnect:
         pass  # every turn is already saved; reconnecting resumes (projectprep.md 5.11)
+    finally:
+        gate.leave(ip)
