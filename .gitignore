@@ -7,3 +7,6 @@ node_modules/
 
 # Supabase CLI local cache
 supabase/.temp/
+
+# Vercel CLI link (per developer)
+.vercel/
