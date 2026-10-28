@@ -21,6 +21,7 @@ from app.llm import LLMBusyError, LLMError
 from app.observability import init_error_tracking
 from app.report.service import report_handlers
 from app.resume.router import router as resume_router
+from app.speech.piper_tts import PiperTTS
 from app.speech.tts import KokoroTTS
 
 
@@ -45,7 +46,11 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     app.state.pool = await create_pool(settings.database_url, settings.db_pool_max_size)
     # One HTTP client for Kokoro: keeps connections warm between sentences.
     tts_http = httpx.AsyncClient(timeout=settings.tts_timeout_s)
-    app.state.tts = KokoroTTS(tts_http, settings.kokoro_url, settings.kokoro_voice)
+    if settings.tts_engine == "piper":
+        app.state.tts = PiperTTS(settings.piper_voice_path)
+        await app.state.tts.healthy()  # load the voice now: the first interview shouldn't pay for it
+    else:
+        app.state.tts = KokoroTTS(tts_http, settings.kokoro_url, settings.kokoro_voice)
     # Background jobs (interview reports) run in this process (D31).
     worker_task = None
     if settings.run_jobs:

@@ -10,3 +10,6 @@ supabase/.temp/
 
 # Vercel CLI link (per developer)
 .vercel/
+
+# Piper voice models (downloaded by scripts/get-piper-voice.sh)
+apps/api/voices/

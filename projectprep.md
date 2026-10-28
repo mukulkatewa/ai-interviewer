@@ -340,6 +340,25 @@ Each decision: **what we chose → why → what we gave up.**
 - **Not done:** a local speech-to-text (faster-whisper on the VM): it competes with Kokoro for the same CPUs, and with only 2 interview slots (D42) that trade needs measuring first. The STT fallback today is a hosted OpenAI-style endpoint.
 - **Not verified live:** no second provider key was available, so this is covered by unit tests with fakes only. Try it once with a real key before relying on it.
 
+### D47. Speech that fits a 1-CPU server: Piper
+- **Problem:** Kokoro needs ~4 CPUs (D42 benchmark). The free Oracle VM has 1. With Kokoro absent, the browser's own voice is the fallback (D26), and on Linux Chrome there are often no voices installed at all, so the interview was silent.
+- **Decision:** `TTS_ENGINE=piper` runs the Piper voice inside the API process. Measured on that exact VM (1 OCPU ARM): 0.18 s for a 2-word sentence, **0.94 s for a 17-word one** (5x faster than real time), 65 MB of memory. That beats Kokoro on 4 CPUs (2.8 s) for the sentence-by-sentence speech the interview uses. Voice: `en_US-lessac-medium`, a bit less rich than Kokoro, much better than silence.
+- **Shape:** same `TTSProvider` interface (D9), so nothing else changed. It returns WAV (browsers decode any format), synthesizes one sentence at a time on one thread (on one core, parallel work only slows everything), and any failure still falls back to the browser voice. Optional install: `uv sync --extra piper`; voice file: `scripts/get-piper-voice.sh`. Kokoro stays the default for machines with the CPUs.
+- **Capacity:** one interview at a time on this VM (`MAX_LIVE_INTERVIEWS=1`).
+
+### D48. Speech recognition: names, and the model
+- **Problem:** a real answer came back as "Hello, I am Bilh Ghatayav, currently in my family here in the AAAD Code Dump." The words that broke were proper nouns: the candidate's name and school.
+- **Cause found in our code:** the hint we give Whisper (D24) listed skills and companies but not the candidate's own name or school.
+- **Fix:** the hint now starts with "This is an interview with <name>, who studied at <school>." Whisper spells a name correctly once it has seen it.
+- **Model:** default `whisper-large-v3` instead of the distilled `turbo`: more accurate on accented English and rare words. On Groq the speed difference is small (about 190x vs 215x real time), so the cost is tens of milliseconds. Switch back with `GROQ_STT_MODEL`.
+- **Not measured:** no recording of the candidate's voice was available, so the accuracy gain is expected, not measured. Test with your own voice.
+
+### D49. Where things run, and the latency it costs
+- **Measured round trips:** VM (Mumbai) to the database (Seoul): **146 ms per query**, 1.3 s to open a connection; VM to Groq: 240 ms. Vercel's functions defaulted to Virginia, so one page load went India, US, Mumbai, Seoul.
+- **Done:** `apps/web/vercel.json` pins the web functions to `bom1` (Mumbai), next to the API.
+- **Biggest remaining cost:** the database is in Seoul. A new Supabase project in **Mumbai** (`ap-south-1`) makes every query ~2 ms instead of 146 ms, and a turn does several in a row. Free projects: two are allowed. Steps in `docs/deploy.md`.
+- **Rule:** keep the web functions, the API and the database in one region.
+
 ---
 
 ## 5. How each feature works (step by step)
