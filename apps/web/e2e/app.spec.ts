@@ -60,6 +60,9 @@ test("End interview works on the first click, even while the interviewer is spea
   // "your turn" then put the screen back into listening mode, so the first click looked broken (D33).
   const { analysisId } = await createAnalysis(user);
   await signIn(context, user);
+  // The Content-Security-Policy (D40) must not block anything the interview needs: mic, voice model, audio, sockets.
+  const blocked: string[] = [];
+  page.on("console", (m) => /content security policy|refused to/i.test(m.text()) && blocked.push(m.text()));
 
   await page.goto(`/analyses/${analysisId}`);
   await page.getByRole("button", { name: "Start mock interview" }).click();
@@ -73,6 +76,7 @@ test("End interview works on the first click, even while the interviewer is spea
 
   await page.waitForTimeout(4_000); // a stale "your turn" would have reappeared by now
   await expect(page.getByRole("button", { name: "Done answering" })).toBeHidden();
+  expect(blocked).toEqual([]);
 });
 
 test("full voice interview through to the feedback report @slow", async ({ page, context }) => {

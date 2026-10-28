@@ -105,7 +105,8 @@ async def ready(request: Request) -> JSONResponse | dict[str, str]:
     required: when it is down, interviews fall back to browser speech (D26). Point uptime monitors here."""
     try:
         await asyncio.wait_for(request.app.state.pool.fetchval("select 1"), timeout=3)
-    except Exception:  # noqa: BLE001 - any failure, including a timeout, means "not ready"
+    except Exception as e:  # noqa: BLE001 - any failure, including a timeout, means "not ready"
+        logging.getLogger(__name__).warning("not ready: %r", e)
         return JSONResponse({"status": "unavailable", "database": "down"}, status_code=503)
     tts = "up" if await request.app.state.tts.healthy() else "down"
     return {"status": "ok", "database": "up", "tts": tts}

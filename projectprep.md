@@ -300,6 +300,12 @@ Each decision: **what we chose → why → what we gave up.**
 - **Second layer (optional):** `pg_cron` inside Supabase writing the same row daily (docs/deploy.md). Cheap insurance, because the exact definition of "activity" is not documented precisely.
 - **Not a substitute for backups:** free projects have no automatic backups to rely on. A scheduled `pg_dump` is a separate item.
 
+### D40. Content-Security-Policy and HSTS
+- **Decision:** `next.config.ts` sends a CSP on every response: scripts, styles, images, media and workers from our own origin only; connections only to our API (HTTP and WebSocket), Supabase, and PostHog when a key is set; no framing, no plugins, forms only to ourselves. Plus HSTS.
+- **The honest compromise:** `script-src` includes `'unsafe-inline'`, because Next.js ships small inline bootstrap scripts and a per-request nonce would make every page dynamic (no prerendering, slower). The policy still stops the high-value attack: loading a script from, or sending data to, any other origin. `'wasm-unsafe-eval'` exists only for the voice-detection model (onnxruntime WebAssembly).
+- **Verified, not assumed:** a browser test runs the whole interview (upload, plan, microphone, voice detection, audio playback, sockets) and fails on any CSP console error; a second check showed the browser really blocks a fetch and a script from another origin.
+- **When you add a service** (analytics, error tracking, a CDN) its origin must be added in `connectSources()`, or the browser will block it.
+
 ---
 
 ## 5. How each feature works (step by step)
