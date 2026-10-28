@@ -61,10 +61,11 @@ class Settings(BaseSettings):
     run_jobs: bool = True
     # How long a new interview WebSocket may stay open without sending `auth`.
     ws_auth_timeout_s: float = 10.0
-    # Connection limits (D42). Per client address, and live interviews across the whole server
-    # (sized from bench/tts_concurrency.py: re-measure on the production VM and set MAX_LIVE_INTERVIEWS).
+    # Connection limits (D42). Per client address, and live interviews across the whole server.
+    # Measured (docs/benchmarks/tts-concurrency-2026-10-29.md): Kokoro on 4 CPUs slows almost in
+    # proportion to the number of interviews, so 2 is the honest default. Re-measure on the production VM.
     ws_max_per_ip: int = 20
-    max_live_interviews: int = 6
+    max_live_interviews: int = 2
 
     # Browser origins allowed to call the API (D19). JSON list in env, e.g.
     # CORS_ORIGINS='["https://app.example.com"]'. Never "*": we send credentials.
