@@ -10,7 +10,14 @@ set -euo pipefail
 
 [ "$#" -eq 3 ] || { sed -n '2,8p' "$0" | sed 's/^# \{0,1\}//'; exit 2; }
 target="$1" users="$2" app="$3"
-psql_run() { docker run --rm -i --network host postgres:17-alpine psql "$target" -v ON_ERROR_STOP=1 -q "$@"; }
+# psql 17+ from this machine if there is one, otherwise through Docker.
+psql_run() {
+  if command -v psql >/dev/null 2>&1 && [ "$(psql --version | grep -oE '[0-9]+' | head -1)" -ge 17 ]; then
+    psql "$target" -v ON_ERROR_STOP=1 -q "$@"
+  else
+    docker run --rm -i --network host postgres:17-alpine psql "$target" -v ON_ERROR_STOP=1 -q "$@"
+  fi
+}
 
 existing="$(psql_run -At -c "select count(*) from information_schema.tables where table_schema = 'public'")"
 [ "$existing" = "0" ] || { echo "Refusing: the target already has $existing tables in public. Use an empty database." >&2; exit 1; }
