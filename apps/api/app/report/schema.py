@@ -16,14 +16,17 @@ class CompetencyScore(ApiModel):
 
 class QuestionFeedback(ApiModel):
     question: str
-    went_well: str
-    missing: str
-    stronger_answer: str = Field(description="Outline of a stronger answer, using the candidate's own experience")
+    score: int | None = Field(None, ge=1, le=5, description="1-5 for this one answer; 4+ needs a verified quote")
+    quote: str | None = Field(None, description="Exact short quote from this answer that justifies the score")
+    went_well: str = Field(description="What was good, naming the specific thing the candidate said")
+    missing: str = Field(description="The concrete detail, number, trade-off or example the answer lacked")
+    stronger_answer: str = Field(description="A model answer to say aloud, first person, from the resume only")
 
 
 class Improvement(ApiModel):
     area: str
     advice: str = Field(description="One concrete thing to do differently next time")
+    practice: str | None = Field(None, description="A 5-minute exercise that builds this skill")
 
 
 class Evaluation(ApiModel):
@@ -45,8 +48,12 @@ class SpeakingMetrics(ApiModel):
     top_fillers: list[str]
 
 
+Level = Literal["strong", "solid", "developing", "needs_work"]
+
+
 class Report(ApiModel):
     overall_score: int | None = Field(description="0-100, computed by code from competency scores")
+    level: Level | None = Field(None, description="Plain-words band for the score, computed by code")
     insufficient: bool = Field(description="True when the interview was too short to evaluate")
     summary: str
     competencies: list[CompetencyScore]

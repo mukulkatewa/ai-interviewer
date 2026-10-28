@@ -16,10 +16,10 @@ async function LoginFormFromParams({ searchParams }: Pick<PageProps<"/login">, "
 
 export default function LoginPage({ searchParams }: PageProps<"/login">) {
   return (
-    <main className="flex flex-1 flex-col items-center justify-center px-4 py-16">
-      <div className="w-full max-w-sm">
+    <main className="bg-glow flex flex-1 flex-col items-center justify-center px-4 py-16">
+      <div className="w-full max-w-sm rounded-3xl border bg-card p-8 shadow-xl shadow-primary/5">
         <Logo />
-        <h1 className="mt-8 text-2xl font-semibold tracking-tight">Sign in</h1>
+        <h1 className="mt-8 text-2xl font-bold tracking-tight">Sign in</h1>
         <p className="mt-1 text-sm text-muted-foreground">Your resumes and reports are private to your account.</p>
         <Suspense fallback={<Skeleton className="mt-8 h-52 w-full" />}>
           <LoginFormFromParams searchParams={searchParams} />

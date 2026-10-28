@@ -3,6 +3,7 @@ import type { Metadata } from "next";
 import { Badge } from "@/components/ui/badge";
 import { getServerApi, unwrap } from "@/lib/api/server";
 import { formatDate } from "@/lib/format";
+import { StartInterviewNow } from "../../start-interview-now";
 import { AnalyzeForm } from "./analyze-form";
 import { DeleteResume } from "./delete-resume";
 
@@ -18,7 +19,7 @@ export default async function ResumePage({ params }: PageProps<"/resumes/[id]">)
     <div className="grid gap-10 lg:grid-cols-[1fr_22rem]">
       <article className="min-w-0 space-y-8">
         <header>
-          <h1 className="text-2xl font-semibold tracking-tight">{profile.name ?? resume.file_name}</h1>
+          <h1 className="text-3xl font-bold tracking-tight">{profile.name ?? resume.file_name}</h1>
           {profile.headline && <p className="mt-1 text-muted-foreground">{profile.headline}</p>}
           <p className="mt-2 text-xs text-muted-foreground">
             {resume.file_name} · uploaded {formatDate(resume.created_at)}
@@ -83,7 +84,8 @@ export default async function ResumePage({ params }: PageProps<"/resumes/[id]">)
         <DeleteResume resumeId={resume.id} />
       </article>
 
-      <aside className="lg:sticky lg:top-8 lg:self-start">
+      <aside className="space-y-5 lg:sticky lg:top-24 lg:self-start">
+        <StartInterviewNow resumeId={resume.id} />
         <AnalyzeForm resumeId={resume.id} />
       </aside>
     </div>

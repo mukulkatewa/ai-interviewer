@@ -86,8 +86,16 @@ def normalize(plan: InterviewPlan) -> InterviewPlan:
 
 async def make_plan(resume: ResumeProfile, job: JobProfile, match: MatchResult, llm: LLMClient) -> InterviewPlan:
     gaps = ", ".join(_gaps(match)) or "none"
+    # No job description (D36): the interview is a general one built on the resume.
+    no_job = (
+        "<note>No job description was given"
+        + (f"; the candidate is practicing for: {job.title}" if job.title else "")
+        + ". Base role_skills questions on the strongest skills on the resume, practical and scenario-based.</note>\n"
+        if not job.must_have
+        else ""
+    )
     user = (
-        f"<resume>\n{resume.model_dump_json(exclude_none=True)}\n</resume>\n"
+        no_job + f"<resume>\n{resume.model_dump_json(exclude_none=True)}\n</resume>\n"
         f"<job>\n{job.model_dump_json(exclude_none=True)}\n</job>\n"
         f"<gaps>{gaps}</gaps>"
     )

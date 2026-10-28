@@ -16,7 +16,7 @@ export default async function InterviewPage({ params }: PageProps<"/interviews/[
       <header>
         <h1 className="text-2xl font-semibold tracking-tight">Mock interview</h1>
         <p className="text-muted-foreground">
-          {[interview.job_title ?? "Untitled role", interview.company].filter(Boolean).join(" · ")}
+          {[interview.job_title ?? "General practice interview", interview.company].filter(Boolean).join(" · ")}
         </p>
       </header>
 

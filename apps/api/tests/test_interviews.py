@@ -1,6 +1,7 @@
 """Interviews: HTTP routes and the live WebSocket conversation (phases 6-8)."""
 
 import json
+from uuid import UUID
 
 import pytest
 
@@ -9,8 +10,9 @@ from app.interview import script
 from app.interview.plan import InterviewPlan
 from app.interview.speaker import ACKNOWLEDGEMENTS
 from app.llm import LLMError
+from app.resume.schema import ResumeProfile
 from app.speech.stt import STTBusyError
-from tests.conftest import USER_B
+from tests.conftest import RESUME_TEXT, USER_B, make_pdf
 from tests.interview_fixtures import (
     PLAN,
     Q1,
@@ -54,6 +56,66 @@ def test_cannot_use_or_see_other_users_interviews(client, analysis_id, interview
     login(USER_B)
 
     assert client.post("/interviews", json={"analysis_id": analysis_id}).status_code == 404
+    assert client.get(f"/interviews/{interview_id}").status_code == 404
+
+
+# --- no job description (D36) ----------------------------------------------------
+
+
+@pytest.fixture
+def resume_id(client, fake_llm) -> str:
+    fake_llm.results[ResumeProfile] = ResumeProfile(name="Rahul Sharma", skills=["Python"])
+    fake_llm.results[InterviewPlan] = PLAN
+    pdf = make_pdf(RESUME_TEXT)
+    return client.post("/resumes", files={"file": ("r.pdf", pdf, "application/pdf")}).json()["id"]
+
+
+def test_start_an_interview_from_a_resume_alone(client, resume_id, fake_llm):
+    resp = client.post("/interviews", json={"resume_id": resume_id, "target_role": "  Data Analyst "})
+
+    assert resp.status_code == 201
+    body = resp.json()
+    assert (body["analysis_id"], body["resume_id"], body["job_title"], body["company"]) == (
+        None, resume_id, "Data Analyst", None,
+    )  # fmt: skip
+    note = fake_llm.calls[-1]["user"]
+    assert "No job description was given" in note and "Data Analyst" in note
+
+
+def test_resume_only_interview_works_without_a_role(client, resume_id):
+    body = client.post("/interviews", json={"resume_id": resume_id}).json()
+    assert body["job_title"] is None
+    assert script.intro(repo_interview(body)).count("general practice interview") == 1
+
+
+def repo_interview(body: dict):
+    from app.interview.repo import Interview
+
+    return Interview(**body)
+
+
+def test_resume_only_interview_runs_and_ends_like_any_other(client, fakes, resume_id):
+    interview_id = client.post("/interviews", json={"resume_id": resume_id}).json()["id"]
+    with connect(client, interview_id) as ws:
+        start(ws)
+        ws.send_json({"type": "end"})
+        read_reply(ws)
+    assert db_rows("select status from interviews where id = $1", UUID(interview_id))[0][0] == "evaluating"
+
+
+def test_request_needs_exactly_one_source(client, analysis_id, resume_id):
+    assert client.post("/interviews", json={}).status_code == 422
+    assert client.post("/interviews", json={"analysis_id": analysis_id, "resume_id": resume_id}).status_code == 422
+
+
+def test_cannot_start_from_someone_elses_resume(client, resume_id, login):
+    login(USER_B)
+    assert client.post("/interviews", json={"resume_id": resume_id}).status_code == 404
+
+
+def test_deleting_the_resume_deletes_its_resume_only_interviews(client, resume_id):
+    interview_id = client.post("/interviews", json={"resume_id": resume_id}).json()["id"]
+    assert client.delete(f"/resumes/{resume_id}").status_code == 204
     assert client.get(f"/interviews/{interview_id}").status_code == 404
 
 

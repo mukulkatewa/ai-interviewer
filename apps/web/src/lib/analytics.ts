@@ -9,7 +9,7 @@
  */
 import type { PostHog } from "posthog-js";
 
-type Event = "analysis_created" | "interview_started" | "interview_completed" | "report_viewed";
+type Event = "analysis_created" | "interview_started_from_resume" | "interview_started" | "interview_completed" | "report_viewed";
 
 const KEY = process.env.NEXT_PUBLIC_POSTHOG_KEY;
 const HOST = process.env.NEXT_PUBLIC_POSTHOG_HOST ?? "https://us.i.posthog.com";

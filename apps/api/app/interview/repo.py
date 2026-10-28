@@ -8,7 +8,7 @@ from uuid import UUID
 import asyncpg
 from pydantic import BaseModel
 
-from app.analysis.schema import MatchResult
+from app.analysis.schema import Coverage, MatchResult
 from app.interview.plan import InterviewPlan, Position
 from app.jd.schema import JobProfile
 from app.jobs import queue
@@ -20,7 +20,8 @@ EVALUATE_INTERVIEW = "evaluate_interview"  # job kind, handled in app/report/ser
 
 class Interview(BaseModel):
     id: UUID
-    analysis_id: UUID
+    analysis_id: UUID | None  # None when the interview started from a resume alone (D36)
+    resume_id: UUID
     status: InterviewStatus
     created_at: datetime
     started_at: datetime | None
@@ -31,18 +32,18 @@ class Interview(BaseModel):
 
 
 _SELECT = """
-    select i.id, i.analysis_id, i.status, i.created_at, i.started_at,
+    select i.id, i.analysis_id, i.resume_id, i.status, i.created_at, i.started_at,
            r.profile->>'name' as candidate_name,
-           j.profile->>'title' as job_title,
+           coalesce(j.profile->>'title', i.target_role) as job_title,
            j.profile->>'company' as company
     from interviews i
-    join analyses a on a.id = i.analysis_id
-    join resumes r on r.id = a.resume_id
-    join job_descriptions j on j.id = a.job_description_id
+    join resumes r on r.id = i.resume_id
+    left join analyses a on a.id = i.analysis_id
+    left join job_descriptions j on j.id = a.job_description_id
 """
 
 
-class AnalysisInputs(BaseModel):
+class PlanInputs(BaseModel):
     """What an interview is planned from."""
 
     resume: ResumeProfile
@@ -50,7 +51,13 @@ class AnalysisInputs(BaseModel):
     match: MatchResult
 
 
-async def get_analysis_inputs(db: asyncpg.Pool, user_id: UUID, analysis_id: UUID) -> AnalysisInputs | None:
+def _no_match() -> MatchResult:
+    """Nothing to compare against when there is no job description."""
+    empty = Coverage(matches=[], ratio=None)
+    return MatchResult(must_have=empty, nice_to_have=empty, score=None)
+
+
+async def get_analysis_inputs(db: asyncpg.Pool, user_id: UUID, analysis_id: UUID) -> PlanInputs | None:
     row = await db.fetchrow(
         """
         select r.profile as resume, j.profile as job, a.match
@@ -63,25 +70,50 @@ async def get_analysis_inputs(db: asyncpg.Pool, user_id: UUID, analysis_id: UUID
     )  # fmt: skip
     if row is None:
         return None
-    return AnalysisInputs(
+    return PlanInputs(
         resume=ResumeProfile.model_validate_json(row["resume"]),
         job=JobProfile.model_validate_json(row["job"]),
         match=MatchResult.model_validate_json(row["match"]),
     )
 
 
-async def create(db: asyncpg.Pool, user_id: UUID, analysis_id: UUID, plan: InterviewPlan) -> Interview | None:
-    """None if the analysis doesn't exist or isn't this user's."""
+async def get_resume_inputs(
+    db: asyncpg.Pool, user_id: UUID, resume_id: UUID, target_role: str | None
+) -> PlanInputs | None:
+    """Plan from the resume alone; the optional role only sets the title."""
+    profile = await db.fetchval("select profile from resumes where id = $1 and user_id = $2", resume_id, user_id)
+    if profile is None:
+        return None
+    return PlanInputs(
+        resume=ResumeProfile.model_validate_json(profile),
+        job=JobProfile(title=target_role),
+        match=_no_match(),
+    )
+
+
+async def create(db: asyncpg.Pool, user_id: UUID, plan: InterviewPlan, *, analysis_id: UUID | None = None,
+                 resume_id: UUID | None = None, target_role: str | None = None) -> Interview | None:  # fmt: skip
+    """None if the analysis or resume doesn't exist or isn't this user's."""
     # INSERT ... SELECT: the ownership check and the insert are one statement,
     # so there's no gap between "checked" and "inserted".
-    interview_id = await db.fetchval(
-        """
-        insert into interviews (user_id, analysis_id, plan)
-        select $1, id, $3 from analyses where id = $2 and user_id = $1
-        returning id
-        """,
-        user_id, analysis_id, plan.model_dump_json(),
-    )  # fmt: skip
+    if analysis_id is not None:
+        interview_id = await db.fetchval(
+            """
+            insert into interviews (user_id, analysis_id, resume_id, plan)
+            select $1, id, resume_id, $3 from analyses where id = $2 and user_id = $1
+            returning id
+            """,
+            user_id, analysis_id, plan.model_dump_json(),
+        )  # fmt: skip
+    else:
+        interview_id = await db.fetchval(
+            """
+            insert into interviews (user_id, resume_id, target_role, plan)
+            select $1, id, $3, $4 from resumes where id = $2 and user_id = $1
+            returning id
+            """,
+            user_id, resume_id, target_role, plan.model_dump_json(),
+        )  # fmt: skip
     return await get(db, user_id, interview_id) if interview_id else None
 
 
@@ -119,19 +151,23 @@ async def get_context(db: asyncpg.Pool, user_id: UUID, interview_id: UUID) -> In
         select q.*, r.profile as resume_profile, j.profile as job_profile, a.match, i.plan, i.position
         from ({_SELECT} where i.id = $1 and i.user_id = $2) q
         join interviews i on i.id = q.id
-        join analyses a on a.id = q.analysis_id
-        join resumes r on r.id = a.resume_id
-        join job_descriptions j on j.id = a.job_description_id
+        join resumes r on r.id = q.resume_id
+        left join analyses a on a.id = q.analysis_id
+        left join job_descriptions j on j.id = a.job_description_id
         """,
         interview_id, user_id,
     )  # fmt: skip
     if row is None:
         return None
+    interview = Interview(**{k: row[k] for k in Interview.model_fields})
     return InterviewContext(
-        interview=Interview(**{k: row[k] for k in Interview.model_fields}),
+        interview=interview,
         resume=ResumeProfile.model_validate_json(row["resume_profile"]),
-        job=JobProfile.model_validate_json(row["job_profile"]),
-        match=MatchResult.model_validate_json(row["match"]),
+        # Without a job description the typed role (if any) is all we know about the job.
+        job=JobProfile.model_validate_json(row["job_profile"])
+        if row["job_profile"]
+        else JobProfile(title=interview.job_title),
+        match=MatchResult.model_validate_json(row["match"]) if row["match"] else _no_match(),
         plan=InterviewPlan.model_validate_json(row["plan"]) if row["plan"] else None,
         position=Position.model_validate_json(row["position"]),
     )

@@ -44,18 +44,20 @@ export function AnalyzeForm({ resumeId }: { resumeId: string }) {
   }
 
   return (
-    <form onSubmit={analyze} className="space-y-3 rounded-xl border bg-card p-5">
+    <form onSubmit={analyze} className="space-y-3 rounded-2xl border bg-card p-5 shadow-sm">
       <div className="space-y-1">
         <Label htmlFor="jd" className="text-base">
-          Match against a job
+          Match against a job (optional)
         </Label>
-        <p className="text-sm text-muted-foreground">Paste the full job description.</p>
+        <p className="text-sm text-muted-foreground">
+          Paste a job description to see your match score, then practice for that role.
+        </p>
       </div>
       <Textarea
         id="jd"
         value={jd}
         onChange={(e) => setJd(e.target.value)}
-        rows={12}
+        rows={8}
         maxLength={20_000}
         placeholder="We're hiring a Backend Engineer…"
         className="resize-y"
@@ -64,7 +66,7 @@ export function AnalyzeForm({ resumeId }: { resumeId: string }) {
       <p id="jd-hint" className="min-h-5 text-sm text-muted-foreground" aria-live="polite">
         {hint}
       </p>
-      <Button type="submit" className="h-10 w-full" disabled={pending || tooShort || hint !== null}>
+      <Button type="submit" variant="outline" className="h-10 w-full" disabled={pending || tooShort || hint !== null}>
         {pending ? "Analyzing… (about 5 seconds)" : "Analyze match"}
       </Button>
     </form>
