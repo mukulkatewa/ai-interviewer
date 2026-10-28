@@ -49,6 +49,8 @@ class Settings(BaseSettings):
     limit_resumes_per_day: int = 10
     limit_analyses_per_day: int = 10
     limit_interviews_per_day: int = 3
+    # Longest we wait on a rate limit inside one request before answering 503 (D41).
+    llm_patience_s: float = 20.0
     # How the feedback report is produced (D38): "single" = one model call, "graph" = LangGraph pipeline.
     report_engine: Literal["single", "graph"] = "single"
     log_level: str = "INFO"
@@ -56,6 +58,10 @@ class Settings(BaseSettings):
     run_jobs: bool = True
     # How long a new interview WebSocket may stay open without sending `auth`.
     ws_auth_timeout_s: float = 10.0
+    # Connection limits (D42). Per client address, and live interviews across the whole server
+    # (sized from bench/tts_concurrency.py: re-measure on the production VM and set MAX_LIVE_INTERVIEWS).
+    ws_max_per_ip: int = 20
+    max_live_interviews: int = 6
 
     # Browser origins allowed to call the API (D19). JSON list in env, e.g.
     # CORS_ORIGINS='["https://app.example.com"]'. Never "*": we send credentials.

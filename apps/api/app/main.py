@@ -12,8 +12,9 @@ from app.account import router as account_router
 from app.analysis.router import router as analysis_router
 from app.config import get_settings
 from app.db import create_pool
-from app.deps import get_analysis_llm
+from app.deps import get_report_llm
 from app.interview.router import router as interview_router
+from app.interview.socket import close_all_for_restart
 from app.interview.socket import router as interview_socket_router
 from app.jobs.worker import Worker
 from app.llm import LLMBusyError, LLMError
@@ -46,11 +47,12 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     # Background jobs (interview reports) run in this process (D31).
     worker_task = None
     if settings.run_jobs:
-        handlers, on_failed = report_handlers(app.state.pool, get_analysis_llm())
+        handlers, on_failed = report_handlers(app.state.pool, get_report_llm())
         worker_task = asyncio.create_task(Worker(app.state.pool, handlers, on_failed).run_forever())
     try:
         yield
     finally:
+        await close_all_for_restart()  # a deploy: clients reconnect and resume (D43)
         if worker_task:
             worker_task.cancel()  # an interrupted job goes back to the queue (requeue_stale)
             await asyncio.gather(worker_task, return_exceptions=True)

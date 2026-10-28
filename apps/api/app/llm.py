@@ -4,8 +4,9 @@ Feature code depends on the `LLMClient` protocol, never on Groq directly, so
 tests can pass a fake and we can swap providers without touching callers.
 """
 
+import asyncio
 import json
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Awaitable, Callable
 from functools import lru_cache
 from typing import Literal, Protocol, TypeVar
 
@@ -38,6 +39,31 @@ class TextStreamer(Protocol):
     def stream_text(self, system: str, user: str) -> AsyncIterator[str]:
         """Spoken-reply text as it's generated, chunk by chunk."""
         ...
+
+
+class PatientLLM:
+    """Waits out a short rate limit instead of failing the request (D41).
+
+    The free tier allows ~8k tokens a minute per model, so a user who uploads a resume and starts an
+    interview straight away can brush against it. The provider says how long to wait; if that fits in
+    `max_wait_s` we wait and try again, otherwise the error goes up unchanged (a 503 with Retry-After).
+    Only for request-path calls: the live conversation must never stall, and the job worker has its own
+    patience (D22).
+    """
+
+    def __init__(self, inner: LLMClient, max_wait_s: float, sleep: Callable[[float], Awaitable[None]] = asyncio.sleep):
+        self._inner, self._max_wait_s, self._sleep = inner, max_wait_s, sleep
+
+    async def complete_json(self, system: str, user: str, schema: type[T]) -> T:
+        waited = 0.0
+        while True:
+            try:
+                return await self._inner.complete_json(system, user, schema)
+            except LLMBusyError as e:
+                if waited + e.retry_after_s > self._max_wait_s:
+                    raise
+                waited += e.retry_after_s
+                await self._sleep(e.retry_after_s)
 
 
 def create_groq(api_key: str) -> groq.AsyncGroq:

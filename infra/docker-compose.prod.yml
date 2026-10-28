@@ -19,6 +19,7 @@ services:
   api:
     build: ../apps/api
     restart: unless-stopped
+    stop_grace_period: 15s  # time to tell live interviews to reconnect (D43); uvicorn waits at most 10 s
     env_file: ../apps/api/.env  # secrets stay on the VM, never in the image (.dockerignore)
     environment:
       KOKORO_URL: http://kokoro:8880

@@ -21,4 +21,4 @@ USER app
 EXPOSE 8000
 # One process on purpose: live sessions (D30) and the job worker (D31) live in memory.
 # --proxy-headers: client IP and https scheme come through Caddy.
-CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--proxy-headers", "--forwarded-allow-ips", "*"]
+CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--proxy-headers", "--forwarded-allow-ips", "*", "--timeout-graceful-shutdown", "10"]
