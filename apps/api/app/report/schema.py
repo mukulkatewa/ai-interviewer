@@ -29,14 +29,25 @@ class Improvement(ApiModel):
     practice: str | None = Field(None, description="A 5-minute exercise that builds this skill")
 
 
-class Evaluation(ApiModel):
-    """What the model writes. Scores and quotes are checked by code before use (D14)."""
-
-    summary: str
+class CompetencyEvaluation(ApiModel):
     competencies: list[CompetencyScore]
+
+
+class QuestionReview(ApiModel):
     questions: list[QuestionFeedback] = Field(default_factory=list)
+
+
+class Wrapup(ApiModel):
+    summary: str
     strengths: list[str] = Field(default_factory=list)
     improvements: list[Improvement] = Field(default_factory=list)
+
+
+class Evaluation(CompetencyEvaluation, QuestionReview, Wrapup):
+    """Everything the model writes in one call. Scores and quotes are checked by code before use (D14).
+
+    The graph engine asks for the same three parts separately (D38); this is the single-call form.
+    """
 
 
 class SpeakingMetrics(ApiModel):

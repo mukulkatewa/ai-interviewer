@@ -85,3 +85,26 @@ E2E_WEB_URL=https://ai-interviewer.vercel.app E2E_API_URL=https://$API_DOMAIN \
 | Interviewer has a robotic voice | Kokoro is down or still starting: `docker compose … logs kokoro`. The browser voice is the fallback (D26) |
 | "Our AI is at capacity" | Groq free-tier rate limit; it recovers within a minute |
 | "You've reached today's limit" | Per-user daily limits (D32); tune `LIMIT_*_PER_DAY` in `apps/api/.env` |
+
+
+## Keep the free database awake
+
+Free Supabase projects are paused after about a week without database activity. The repo includes a scheduled GitHub Action that prevents it (D39).
+
+1. Apply the migration: `./scripts/db-push.sh`.
+2. In GitHub: repo → **Settings → Secrets and variables → Actions → Variables** → add two *variables* (not secrets; both values are public):
+   - `SUPABASE_URL` = `https://<project-ref>.supabase.co`
+   - `SUPABASE_PUBLISHABLE_KEY` = your publishable key (`sb_publishable_...`)
+   Or from a terminal: `gh variable set SUPABASE_URL --body "https://<project-ref>.supabase.co"` and the same for the key.
+3. Test it once: **Actions → Keep Supabase awake → Run workflow**. Green means it worked. Or from your machine:
+   ```
+   curl -X POST "$SUPABASE_URL/rest/v1/rpc/keepalive" -H "apikey: $SUPABASE_PUBLISHABLE_KEY" -H "Content-Type: application/json" -d '{}'
+   ```
+   It returns a timestamp.
+4. Optional second layer, inside Supabase itself: **Database → Extensions → enable `pg_cron`**, then in the SQL editor:
+   ```sql
+   select cron.schedule('keepalive', '0 4 * * *', $$ select public.keepalive() $$);
+   ```
+5. If a project is ever paused anyway, Supabase keeps the data for a while and you restore it with one click in the dashboard.
+
+Check the Actions tab once a month: GitHub turns off scheduled workflows in a public repo after 60 days without any push.

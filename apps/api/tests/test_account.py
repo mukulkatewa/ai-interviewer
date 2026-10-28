@@ -56,3 +56,10 @@ def test_delete_my_data_removes_everything_mine_only(client, fakes, interview_id
         assert db_rows(f"select 1 from {table}") == []
     login(USER_B)
     assert len(client.get("/resumes").json()) == 1
+
+
+def test_keepalive_moves_the_timestamp_and_never_adds_rows(client):
+    """The function behind the scheduled keep-alive (D39): one row, updated on every call."""
+    first, second = (db_rows("select public.keepalive() as at")[0]["at"] for _ in range(2))
+    assert second >= first
+    assert db_rows("select count(*) as n from public.keepalive")[0]["n"] == 1

@@ -10,6 +10,7 @@ From "deployed" to "real users", in order. Deployment itself: [`deploy.md`](depl
 - [ ] Sign in on a phone (Chrome Android, Safari iOS): mic permission prompt, interviewer voice, answer captured.
 - [ ] Supabase → Authentication → Rate limits: the built-in email sender allows only a few emails per hour. For more than a handful of magic-link users, enable Google sign-in (doesn't use email) or add a free SMTP provider (Resend's free tier works).
 - [ ] Limits match your free tiers (`LIMIT_*_PER_DAY`, D32). Groq allows 1,000 requests/day **per model**. A full interview uses ~10 live-model calls and 1 plan + 1 report call on the 120B model. So roughly **80–100 interviews a day** fit, before Whisper's 28,800 audio-seconds/day limit (≈ 8 hours of answers).
+- [ ] Keep-alive working: the "Keep Supabase awake" Action ran green once by hand (docs/deploy.md, "Keep the free database awake").
 - [ ] PostHog key set on Vercel if you want usage numbers (optional, anonymous).
 - [ ] Privacy: the landing page or footer says what is stored (resume text, transcripts, reports), that audio is not stored, and that "Delete all my data" is on the dashboard.
 

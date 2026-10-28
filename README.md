@@ -79,11 +79,28 @@ flowchart TD
     K --> P([Feedback report])
 ```
 
+## The report pipeline (LangGraph)
+
+The feedback report is built by a [LangGraph](https://langchain-ai.github.io/langgraph/) graph that runs in the background worker (D38). Scoring and per-question review run in parallel, code then verifies every quote and score, and a last small call writes the summary from the verified results only. Switch engines with `REPORT_ENGINE=single|graph`. It is optional: measured on the same interview, the single call was faster (7 s against 10 to 14 s), so `single` stays the default; see [`docs/benchmarks/report-engines-2026-10-29.md`](docs/benchmarks/report-engines-2026-10-29.md).
+
+```mermaid
+graph TD;
+    start([start]) --> prepare
+    prepare -.->|too short: no model call| done([end])
+    prepare -.-> score_competencies
+    prepare -.-> review_questions
+    score_competencies --> verify
+    review_questions --> verify
+    verify --> write_wrapup
+    write_wrapup --> done
+```
+
 ## Roadmap
 
 Planned, **not implemented**. Nothing below is part of the architecture today:
 
-- **LangGraph** to run the interview flow (checkpointing, a drawn graph) and **LangChain** as a provider layer. Today the flow is plain Python, on purpose: see decision D35 in [`projectprep.md`](projectprep.md) for why it was evaluated and what would change that.
+- **LangChain** as a provider layer: not used. Our model client is 20 lines, and the graph below doesn't need it (D38).
+- **LangGraph** for the live interview flow: not used on purpose (it would fight sentence-by-sentence speech), see D35.
 - A fallback speech-to-text (`faster-whisper` on the VM) behind the existing `STTProvider` interface, for when Groq is at its free limit.
 - A short wait-and-retry when the free model limit is hit, instead of failing straight away.
 - Interruptions (talking over the interviewer), and more Indian languages with the AI4Bharat models.

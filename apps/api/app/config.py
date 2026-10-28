@@ -1,4 +1,5 @@
 from functools import lru_cache
+from typing import Literal
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
@@ -48,6 +49,8 @@ class Settings(BaseSettings):
     limit_resumes_per_day: int = 10
     limit_analyses_per_day: int = 10
     limit_interviews_per_day: int = 3
+    # How the feedback report is produced (D38): "single" = one model call, "graph" = LangGraph pipeline.
+    report_engine: Literal["single", "graph"] = "single"
     log_level: str = "INFO"
     # Run the background job worker in this process (D31). Off in tests, which drive it directly.
     run_jobs: bool = True
