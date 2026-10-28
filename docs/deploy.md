@@ -17,7 +17,7 @@ Vercel (web)  ──►  Oracle Cloud VM: Caddy ─► API (+ job worker) ─►
 2. Authentication → URL Configuration:
    - **Site URL**: your Vercel URL, e.g. `https://ai-interviewer.vercel.app`
    - **Redirect URLs**: add `https://ai-interviewer.vercel.app/auth/callback`, and keep the localhost one for development
-3. Authentication → Providers → **Google** (optional): create an OAuth client in Google Cloud Console (type *Web application*). Its authorized redirect URI is the one Supabase shows on that page.
+3. Authentication → Providers → **Google** (recommended: it is the main sign-in button, magic link is the fallback): create an OAuth client in Google Cloud Console (type *Web application*). Its authorized redirect URI is the one Supabase shows on that page.
 
 ## 2. Oracle Cloud VM (API + TTS)
 
