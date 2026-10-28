@@ -263,7 +263,7 @@ Each decision: **what we chose → why → what we gave up.**
 - **Ending is instant on the client too:** "End interview" cuts audio at once (`AudioQueue.stop()` drops everything queued), ignores a stale "your turn", and after confirming shows the result without waiting for the goodbye. The goodbye for an early end is one short sentence (3.4 s instead of 10.4 s measured).
 - **Tests:** a Playwright regression test for the first-click end; browser checks that the microphone is requested once, within 4 s of Start, and released after.
 
-### D35. LangGraph and LangChain: evaluated, not adopted
+### D35. LangGraph and LangChain: evaluated; LangGraph later adopted for the report only (D38)
 - **What they would give us:** LangGraph describes a flow as nodes and edges, with checkpointing and a drawn graph. LangChain gives one interface over model providers.
 - **Why we didn't:** the interview flow is already a small explicit state machine in plain Python (`allowed_actions`, `advance`, a saved `position`), with every rule covered by tests. The speed work (D8, D23) streams sentences into speech while the model is still writing, and a node-by-node runner would fight that. The provider interface (D9) already exists as 20 lines. A framework here is more code and more to debug for no new capability.
 - **When to revisit:** branching multi-agent flows, long-running runs that must pause and resume across processes, or several model providers in rotation. Until then this entry is the honest record: it is a roadmap item in the README, **not** part of the architecture.
@@ -279,6 +279,18 @@ Each decision: **what we chose → why → what we gave up.**
 - **Prompt:** the evaluator now sees the resume, has a written 1-5 scale with anchors (2 = vague, 3 = thin, 4 = specific plus a decision or result, 5 = rare), and must name what was said or missing. Per question it returns a score, an exact quote, a specific "went well", a concrete "missing", and a model answer to say aloud built only from the resume. Each improvement carries a 5-minute practice exercise.
 - **Code guards (the model can't talk its way past them):** a score of 4 or more without a quote the candidate really said is lowered to 3 (competency and per question); communication is capped at 3 when most answers are under 15 words; `level` (strong / solid / developing / needs work) is computed from the number, so words and number can't disagree.
 - **Tests:** each guard has a test; removing the quote rule fails them.
+
+### D38. The feedback report runs as a LangGraph graph (optional engine)
+- **Decision:** LangGraph orchestrates the **report pipeline** only. The live interview loop stays plain Python (D35 still holds for it). LangChain is **not** used: our 20-line `LLMClient` already does the one thing we need, and `langchain-core` is only present as LangGraph's own dependency.
+- **Why here:** the report is the one place with real graph structure: two independent model calls that can run in parallel, a join, a checking step, and per-node retries. It runs in the background worker, so it can't slow the conversation, which is what ruled a graph out of the live loop (it would fight sentence-by-sentence speech streaming).
+- **The graph** (`app/report/graph.py`):
+  `prepare` -> `score_competencies` and `review_questions` in parallel -> `verify` (pure code) -> `write_wrapup` -> end. Too-short interviews go from `prepare` straight to the end with no model call.
+- **Smaller, cheaper calls:** scoring doesn't get the planner's focus notes; the wrap-up doesn't get the transcript at all, only the already-verified scores and quotes, so it can't repeat a quote that failed verification.
+- **One source of truth:** both engines call the same prompt parts, `verify`, `assemble` and `context` in `app/report/evaluate.py`. The graph file only decides order. A test proves both engines give an identical report from identical model output.
+- **Rate limits:** the free tier allows ~8k tokens a minute per model, and two parallel calls can brush against it. Each model node retries only on `LLMBusyError` (15 s, 30 s, then up to 3 tries) and only that node repeats; past that, the error reaches the worker, which waits as long as the provider asks (D22).
+- **Switch:** `REPORT_ENGINE=single|graph` (default in `app/config.py`). The old path stays so a bad model day can be handled by flipping one variable.
+- **Edge cases covered by tests:** too-short interview (no model call), parallelism (the calls wait for each other, so a sequential graph would hang), retry only the failed branch, persistent rate limit reaches the worker, malformed output fails loudly, more feedback entries than planned questions or repeated questions are cut, the same report through the real job queue.
+- **Measured, and the result is not flattering:** on the same interview the graph took 10.0 s and 13.9 s against 7.0 s and 7.1 s for the single call, and its scores were less steady (51, 45 against 50, 50). Two runs each, so a direction, not statistics (`docs/benchmarks/report-engines-2026-10-29.md`, `uv run python -m bench.report_engines`). Splitting the work added a third call and repeated the model's reasoning time, so it is **not** an efficiency gain. The default therefore stays `single`; the graph is an optional engine, kept tested and measured, to flip on if a future model or a much longer transcript changes the numbers.
 
 ---
 

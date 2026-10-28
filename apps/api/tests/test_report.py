@@ -18,8 +18,10 @@ from app.report.evaluate import (
     verified_evidence,
 )
 from app.report.metrics import speaking_metrics
+from app.report.repo import EvaluationInputs
 from app.report.schema import CompetencyScore, Evaluation, QuestionFeedback
 from app.report.service import report_handlers
+from app.resume.schema import ResumeProfile
 from tests.conftest import USER_B
 from tests.interview_fixtures import answer, connect, db_rows, read_reply, start
 
@@ -34,6 +36,17 @@ def test_verified_evidence_keeps_only_real_quotes():
         "p95",  # too short to prove anything
     ]
     assert verified_evidence(quotes, said) == ["added a COMPOUND index on seller id status"]
+
+
+def inputs_for(answers, *, has_job_description=True) -> EvaluationInputs:
+    return EvaluationInputs(
+        plan=InterviewPlan(questions=[]),
+        resume=ResumeProfile(name="Rahul", skills=["Python"]),
+        job=JobProfile(),
+        has_job_description=has_job_description,
+        turns=[],
+        answers=answers,
+    )
 
 
 def c(name: str, score: int | None, evidence: list[str] | None = None) -> CompetencyScore:
@@ -80,9 +93,7 @@ async def test_duplicate_competencies_count_once(fake_llm):
         summary="s",
         competencies=[c("technical_depth", 3, ["a b c"]), c("communication", 3), c("technical_depth", 1)],
     )
-    report = await build_report(
-        InterviewPlan(questions=[]), None, JobProfile(), [], [("a b c", 1.0), ("d e f", 1.0)], fake_llm
-    )
+    report = await build_report(inputs_for([("a b c", 1.0), ("d e f", 1.0)]), fake_llm)
 
     assert [x.competency for x in report.competencies] == ["technical_depth", "communication"]
     assert report.competencies[0].score == 3  # first one wins
@@ -90,7 +101,7 @@ async def test_duplicate_competencies_count_once(fake_llm):
 
 
 async def test_too_short_interview_skips_the_model(fake_llm):
-    report = await build_report(InterviewPlan(questions=[]), None, JobProfile(), [], [("Hi.", 1.0)], fake_llm)
+    report = await build_report(inputs_for([("Hi.", 1.0)]), fake_llm)
     assert report.insufficient and report.overall_score is None
     assert fake_llm.calls == []
 
@@ -243,9 +254,28 @@ async def test_without_a_job_description_role_fit_is_not_scored(fake_llm):
     fake_llm.results[Evaluation] = Evaluation(
         summary="s", competencies=[c("role_fit", 4, ["a b c"]), c("communication", 3)]
     )
-    report = await build_report(
-        InterviewPlan(questions=[]), None, JobProfile(), [], [("a b c d", 1.0), ("e f g h", 1.0)], fake_llm,
-        has_job_description=False,
-    )  # fmt: skip
+    report = await build_report(inputs_for([("a b c d", 1.0), ("e f g h", 1.0)], has_job_description=False), fake_llm)
     assert [x.competency for x in report.competencies] == ["communication"]
     assert "none given" in fake_llm.calls[-1]["user"]
+
+
+def test_worker_with_the_graph_engine_saves_the_same_report(client, fakes, interview_id, fake_llm, monkeypatch):
+    from app.config import get_settings
+    from app.report import service
+    from app.report.schema import CompetencyEvaluation, QuestionReview, Wrapup
+
+    monkeypatch.setattr(service, "get_settings", lambda: get_settings().model_copy(update={"report_engine": "graph"}))
+    fake_llm.results[CompetencyEvaluation] = CompetencyEvaluation(competencies=EVALUATION.competencies)
+    fake_llm.results[QuestionReview] = QuestionReview(questions=EVALUATION.questions)
+    fake_llm.results[Wrapup] = Wrapup(
+        summary=EVALUATION.summary, strengths=EVALUATION.strengths, improvements=EVALUATION.improvements
+    )
+    finish_interview(client, interview_id)
+
+    handlers, on_failed = service.report_handlers(app.state.pool, fake_llm)
+    assert client.portal.call(Worker(app.state.pool, handlers, on_failed).run_once) is True
+
+    report = client.get(f"/interviews/{interview_id}/report").json()["report"]
+    assert report["overall_score"] == 65  # identical to the single-call engine's result above
+    assert report["level"] == "solid"
+    assert [c["schema"].__name__ for c in fake_llm.calls[-3:]].count("Wrapup") == 1
