@@ -268,6 +268,18 @@ Each decision: **what we chose → why → what we gave up.**
 - **Why we didn't:** the interview flow is already a small explicit state machine in plain Python (`allowed_actions`, `advance`, a saved `position`), with every rule covered by tests. The speed work (D8, D23) streams sentences into speech while the model is still writing, and a node-by-node runner would fight that. The provider interface (D9) already exists as 20 lines. A framework here is more code and more to debug for no new capability.
 - **When to revisit:** branching multi-agent flows, long-running runs that must pause and resume across processes, or several model providers in rotation. Until then this entry is the honest record: it is a roadmap item in the README, **not** part of the architecture.
 
+### D36. The job description is optional
+- **Change:** an interview can start from a resume alone, with an optional typed role ("Backend Engineer"). `POST /interviews` takes exactly one of `analysis_id` or `resume_id`.
+- **Data:** `interviews.analysis_id` is now nullable; `interviews.resume_id` (always set, composite FK so it must be your own resume) and `interviews.target_role` are new. Existing rows are backfilled from their analysis. Migration: `20261028000000_interview_without_job.sql`.
+- **Behavior:** with no job description the plan has no "gaps", so the planner is told to base the role-skills questions on the strongest skills on the resume. The greeting says "a general practice interview" when there is no role. The report does not score `role_fit` (nothing to fit against), and the weights re-balance across the other four (same rule as any unscored competency).
+- **Why:** the job description step was the biggest drop-off between "I uploaded my resume" and "I'm practicing". The match report stays available as an optional extra.
+
+### D37. Grading is calibrated, and strong scores need proof
+- **Problem:** feedback read as vague: scores clustered high, comments were generic, and the model never saw the resume, so it could not say what the candidate failed to mention.
+- **Prompt:** the evaluator now sees the resume, has a written 1-5 scale with anchors (2 = vague, 3 = thin, 4 = specific plus a decision or result, 5 = rare), and must name what was said or missing. Per question it returns a score, an exact quote, a specific "went well", a concrete "missing", and a model answer to say aloud built only from the resume. Each improvement carries a 5-minute practice exercise.
+- **Code guards (the model can't talk its way past them):** a score of 4 or more without a quote the candidate really said is lowered to 3 (competency and per question); communication is capped at 3 when most answers are under 15 words; `level` (strong / solid / developing / needs work) is computed from the number, so words and number can't disagree.
+- **Tests:** each guard has a test; removing the quote rule fails them.
+
 ---
 
 ## 5. How each feature works (step by step)

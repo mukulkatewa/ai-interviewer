@@ -31,8 +31,8 @@ async function UserMenu() {
 export default function AppLayout({ children }: { children: React.ReactNode }) {
   return (
     <div className="flex flex-1 flex-col">
-      <header className="border-b">
-        <div className="mx-auto flex w-full max-w-5xl items-center justify-between gap-4 px-4 py-3">
+      <header className="sticky top-0 z-30 border-b bg-background/80 backdrop-blur-md">
+        <div className="mx-auto flex w-full max-w-5xl items-center justify-between gap-4 px-4 py-3.5">
           <Logo href="/dashboard" />
           <Suspense>
             <UserMenu />
@@ -40,7 +40,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
         </div>
       </header>
       {/* Pages read the session too; (app)/loading.tsx is their Suspense boundary. */}
-      <main className="mx-auto w-full max-w-5xl flex-1 px-4 py-8">{children}</main>
+      <main className="mx-auto w-full max-w-5xl flex-1 px-4 py-10">{children}</main>
     </div>
   );
 }

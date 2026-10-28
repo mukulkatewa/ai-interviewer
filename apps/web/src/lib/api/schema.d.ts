@@ -275,13 +275,20 @@ export interface components {
              */
             ratio: number | null;
         };
-        /** CreateInterviewRequest */
+        /**
+         * CreateInterviewRequest
+         * @description From a job match report, or straight from a resume (the job description is optional, D36).
+         */
         CreateInterviewRequest: {
+            /** Analysis Id */
+            analysis_id?: string | null;
+            /** Resume Id */
+            resume_id?: string | null;
             /**
-             * Analysis Id
-             * Format: uuid
+             * Target Role
+             * @description Optional role to practice for; resume-only
              */
-            analysis_id: string;
+            target_role?: string | null;
         };
         /** Education */
         Education: {
@@ -340,6 +347,11 @@ export interface components {
              * @description One concrete thing to do differently next time
              */
             advice: string;
+            /**
+             * Practice
+             * @description A 5-minute exercise that builds this skill
+             */
+            practice: string | null;
         };
         /**
          * Insights
@@ -362,11 +374,13 @@ export interface components {
              * Format: uuid
              */
             id: string;
+            /** Analysis Id */
+            analysis_id: string | null;
             /**
-             * Analysis Id
+             * Resume Id
              * Format: uuid
              */
-            analysis_id: string;
+            resume_id: string;
             /**
              * Status
              * @enum {string}
@@ -459,13 +473,29 @@ export interface components {
         QuestionFeedback: {
             /** Question */
             question: string;
-            /** Went Well */
+            /**
+             * Score
+             * @description 1-5 for this one answer; 4+ needs a verified quote
+             */
+            score: number | null;
+            /**
+             * Quote
+             * @description Exact short quote from this answer that justifies the score
+             */
+            quote: string | null;
+            /**
+             * Went Well
+             * @description What was good, naming the specific thing the candidate said
+             */
             went_well: string;
-            /** Missing */
+            /**
+             * Missing
+             * @description The concrete detail, number, trade-off or example the answer lacked
+             */
             missing: string;
             /**
              * Stronger Answer
-             * @description Outline of a stronger answer, using the candidate's own experience
+             * @description A model answer to say aloud, first person, from the resume only
              */
             stronger_answer: string;
         };
@@ -476,6 +506,11 @@ export interface components {
              * @description 0-100, computed by code from competency scores
              */
             overall_score: number | null;
+            /**
+             * Level
+             * @description Plain-words band for the score, computed by code
+             */
+            level: ("strong" | "solid" | "developing" | "needs_work") | null;
             /**
              * Insufficient
              * @description True when the interview was too short to evaluate

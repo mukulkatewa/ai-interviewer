@@ -9,6 +9,10 @@ Free, voice-based mock interviews personalized to your resume and a job descript
 
 Everything runs on free tiers: Groq (LLM + Whisper), self-hosted Kokoro TTS, Supabase, Vercel, an Oracle Cloud free VM.
 
+**No job description needed:** upload a resume and practice immediately, or paste a job description to focus the interview and get a match report.
+
+**Grading:** scores are tied to quotes from your own answers; a strong score without proof is lowered by code, and every question gets a specific "missing" note and a model answer (D37).
+
 **In the interview room:** live transcript, a pulsing indicator for whose turn it is, and "Done answering". You can end it by clicking **End interview** or by saying so ("I want to stop the interview"), and either works at any moment, even while the interviewer is speaking.
 
 **Design decisions and architecture: [`projectprep.md`](projectprep.md)** (D1–D32, each with what was chosen, why, and what was given up).
