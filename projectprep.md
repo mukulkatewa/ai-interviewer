@@ -318,8 +318,11 @@ Each decision: **what we chose → why → what we gave up.**
 - **Honest limit:** the numbers come from a development machine. Re-run the benchmark on the production VM and set `MAX_LIVE_INTERVIEWS` from it.
 
 ### D43. Deploys and restarts
-- **Server:** on shutdown every live interview socket is closed with the standard "service restart" code (1012), uvicorn waits at most 10 s, and Docker allows 15 s. Every turn is already saved, so nothing is lost; reconnecting resumes and the interviewer repeats the last question (D30, 5.11).
-- **Browser:** today a dropped connection shows "Connection lost. Reload the page to continue where you left off." Automatic reconnection with backoff was designed (the close codes already distinguish a restart from a refusal) but not shipped, because it changes the interview hook and could not be verified in a browser in this round. It is the first item on the roadmap.
+- **Server:** on shutdown every live interview socket is closed with the standard "service restart" code (1012), uvicorn waits at most 10 s, and Docker allows 15 s. Every turn is already saved, so nothing is lost.
+- **Browser:** a dropped or restarted connection reconnects by itself with growing waits (1, 2, 4, 8, 15 s: about 30 s, longer than a deploy takes), shows "Connection lost. Reconnecting…", and resumes the interview without another click: the microphone and audio are still the page's, and the interviewer repeats the last question (D30, 5.11). Refusals are never retried (session expired, not your interview, open in another tab, server full).
+- **Rules in one place:** `src/lib/interview/reconnect.ts` decides when to retry. It is a pure function with unit tests (`npm run test:unit`, also in CI); the hook only applies the result.
+- **Details that matter:** a half-recorded answer is discarded, never sent to a dead socket; audio from the old connection is stopped so it can't play over the repeated question; a late close event from a connection already replaced is ignored, so one drop can't start two retry loops; after the candidate pressed End, a closed socket is not a reason to reconnect.
+- **Verified:** the retry rules by unit tests, and the hook by type check, lint and build. Not verified in a browser (decided against by the owner, token cost): check one interview by hand, restart the API mid-question, and confirm it reconnects.
 
 ### D44. Error tracking
 - **Decision:** Sentry, only when `SENTRY_DSN` is set. It is configured to send the exception, stack trace and route, nothing else: no request bodies (resumes, audio), no cookies or headers, no user email or IP, no performance tracing. A `before_send` hook strips those again as a second line of defense, with tests.

@@ -97,6 +97,14 @@ export class AnswerRecorder {
     this.finish();
   }
 
+  /** Stop listening and throw away a half-finished answer, e.g. when the connection dropped. Never submits. */
+  async abandon(): Promise<void> {
+    this.active = false;
+    this.clearTimers();
+    this.segments = [];
+    await this.vad.pause().catch(() => {});
+  }
+
   /** Safe to call at any time and more than once: it releases the microphone and never throws. */
   async destroy(): Promise<void> {
     this.active = false;
