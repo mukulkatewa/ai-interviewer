@@ -116,6 +116,26 @@ graph TD;
 
 </details>
 
+## Design exploration
+
+Before writing code I sketched the options for a voice interviewer. These are the early sketches, kept because they show the trade-offs behind the decisions in [`projectprep.md`](projectprep.md). **They are not the final architecture** (that is the diagram above); several of the services drawn here were deliberately not used.
+
+**1. Two ways to build a voice agent.** A *cascade* (speech-to-text, then a language model, then text-to-speech: slower, cheaper, flexible) or a single *voice model* (faster, more expensive).
+We built the **cascade**, because it runs on free tiers and lets code control the interview. The latency cost is recovered by speaking each sentence while the model is still writing the next one (D8, D23).
+
+![Voice agent architectures: cascade pipeline vs voice model](docs/images/design-1-voice-agent-options.png)
+
+**2. Letting the browser talk to a realtime provider directly.** Fast, but the system prompt has to live on the client, the server never sees the conversation, and the client can manipulate it (the sketch marks both as problems).
+
+![Architectures 1 and 2: browser connects straight to the provider with an ephemeral token](docs/images/design-2-realtime-webrtc-options.png)
+
+**3. Keeping the backend in the loop.** A sideband connection lets the backend see every event, hold the prompt and save the conversation.
+This is the idea the final design kept: **our backend owns the whole conversation**. The browser sends one finished answer over a WebSocket, not WebRTC (D3), and the server holds the plan, the prompts and every saved turn, so the client cannot change them.
+
+![Architecture 3: backend listens to the conversation over a sideband connection](docs/images/design-3-backend-sideband.png)
+
+What was chosen instead of the services in the sketches: Groq Whisper for speech-to-text, `gpt-oss-20b` for live turns, Piper or Kokoro for speech, all on free tiers. Deepgram, ElevenLabs and OpenAI's realtime API were considered and not used.
+
 ## Engineering highlights (all measured; see [`docs/benchmarks/`](docs/benchmarks/))
 
 - **Speech on 1 CPU:** Piper makes a 17-word sentence in 0.94 s on the free VM, against 2.8 s for Kokoro on 4 CPUs (D47).
