@@ -49,6 +49,16 @@ class Settings(BaseSettings):
     limit_resumes_per_day: int = 10
     limit_analyses_per_day: int = 10
     limit_interviews_per_day: int = 3
+    # Optional second providers (D46): used when the main one is rate limited or failing. Any service with an
+    # OpenAI-style API works, e.g. Cerebras (https://api.cerebras.ai/v1) for the model, or an OpenAI-style
+    # Whisper endpoint for speech. Leave blank to turn off.
+    fallback_llm_base_url: str = ""
+    fallback_llm_api_key: str = ""
+    fallback_llm_model: str = ""
+    fallback_llm_effort: ReasoningEffort | None = "low"  # set empty for models without reasoning_effort
+    fallback_stt_base_url: str = ""
+    fallback_stt_api_key: str = ""
+    fallback_stt_model: str = "whisper-1"
     # Longest we wait on a rate limit inside one request before answering 503 (D41).
     llm_patience_s: float = 20.0
     # How the feedback report is produced (D38): "single" = one model call, "graph" = LangGraph pipeline.

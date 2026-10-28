@@ -1,7 +1,7 @@
 """Speech-to-text behind a tiny interface (D9). Production uses Groq Whisper."""
 
 import time
-from typing import Protocol
+from typing import Any, Protocol
 
 import groq
 from pydantic import BaseModel
@@ -33,7 +33,11 @@ class STTProvider(Protocol):
 
 
 class GroqWhisper:
-    def __init__(self, client: groq.AsyncGroq, model: str):
+    # Any SDK with the same `audio.transcriptions.create` shape works (see app/fallback.py).
+    _rate_limit: type[Exception] = groq.RateLimitError
+    _api_error: type[Exception] = groq.APIError
+
+    def __init__(self, client: Any, model: str):
         self._client = client  # the app's shared AsyncGroq: one connection pool
         self._model = model
 
@@ -49,9 +53,9 @@ class GroqWhisper:
                 response_format="verbose_json",
                 **extra,
             )
-        except groq.RateLimitError as e:
+        except self._rate_limit as e:
             raise STTBusyError(str(e)) from e
-        except groq.APIError as e:
+        except self._api_error as e:
             raise STTError(str(e)) from e
 
         # verbose_json segments come back as dicts on Groq; be lenient about the shape.

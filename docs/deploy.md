@@ -108,3 +108,28 @@ Free Supabase projects are paused after about a week without database activity. 
 5. If a project is ever paused anyway, Supabase keeps the data for a while and you restore it with one click in the dashboard.
 
 Check the Actions tab once a month: GitHub turns off scheduled workflows in a public repo after 60 days without any push.
+
+
+## Backups (D45)
+
+On the VM, as the user that runs Docker:
+
+```
+crontab -e
+# every night at 03:00
+0 3 * * * cd ~/ai-interviewer && ./scripts/backup.sh >> ~/backup.log 2>&1
+```
+
+Files land in `~/db-backups` (14 days kept). **Copy them off the VM** now and then (or `rclone` them to free cloud storage): a backup on the same disk is not a backup against losing the VM.
+
+Practice the restore once on a scratch database, before you need it:
+```
+./scripts/restore.sh "postgresql://postgres:postgres@localhost:54329/scratch" ~/db-backups/<stamp>-users.sql.gz ~/db-backups/<stamp>-app.sql.gz
+```
+
+## Monitoring
+
+- **Uptime:** point a free monitor (UptimeRobot, Better Stack) at `https://<API_DOMAIN>/ready`. It returns 503 when the database is unreachable and stays 200 when only text-to-speech is down (interviews fall back to the browser's voice).
+- **Errors:** create a free Sentry project, put its DSN in `apps/api/.env` as `SENTRY_DSN`, and `docker compose ... up -d`.
+- **Capacity:** run `uv run python -m bench.tts_concurrency` on the VM, then set `MAX_LIVE_INTERVIEWS` to the largest number of simultaneous interviews whose p50 stays under about 5 s.
+- **Second providers (optional):** fill `FALLBACK_LLM_*` / `FALLBACK_STT_*` in `.env`. Try one interview with Groq's key removed to see the fallback working before you rely on it.
