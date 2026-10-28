@@ -5,6 +5,67 @@
 
 ---
 
+## 0. The project in five minutes (for interview prep)
+
+### The pitch
+A free web app for practicing interviews out loud. You upload a resume (and, optionally, a job description). A voice AI interviewer asks about *your* projects, follows up on vague answers, and finishes with a report whose scores are backed by quotes from your own answers. It runs on free tiers only (Groq, Supabase, Vercel, an Oracle free VM) and it is live.
+
+### How it works, in one pass
+1. **Resume in:** PyMuPDF extracts the text (code), a small model turns it into structured JSON, Pydantic validates it (D5). With a job description, *code* computes the match score and the model only explains it (D6).
+2. **Interview:** the browser detects the end of each answer (Silero VAD, D4) and sends one finished WAV over a WebSocket (D3). The server transcribes it (Whisper, hinted with the candidate's name and terms, D24, D48), saves it, streams the next reply from the model, and speaks it **one sentence at a time while the model is still writing** (D8, D23).
+3. **Who decides what:** **code owns the structure** (which question, how many follow-ups, the time cap, the wrap-up), and the model only writes the words and picks between "follow up" and "next" inside what code allows (D29).
+4. **Report:** ending the interview queues a background job in the same database transaction (outbox, D10, D31). The report is computed by a worker: metrics by code, rubric by model, every quote and score checked and calibrated by code (D11, D14, D37).
+5. **Run:** web on Vercel, API on a free Oracle VM behind Caddy, Postgres and login on Supabase, everything in one region (Mumbai, D49).
+
+### The decisions worth talking about
+| Decision | The trade-off, in one line |
+|---|---|
+| Turn-based, WebSocket, not WebRTC or full-duplex (D2, D3) | Gave up the lowest possible latency and interruptions; got something simple to secure, log and test |
+| Cascade (speech-to-text, model, text-to-speech) over a single voice model (see README "Design exploration") | Slower, but free, flexible and under our control; latency recovered by sentence pipelining |
+| Code owns the interview structure (D29) | Less "magical" than a free-running agent, but testable, predictable, and cheap to run |
+| Score by code, explain by model (D6, D37) | Consistent and explainable, not a vibe; a strong score needs a quote the candidate really said |
+| Postgres as the job queue (D31) | No Redis to run; fine at this scale, and the outbox pattern makes lost jobs impossible |
+| One API process, in-memory sessions (D30) | Simple and fast, but one VM and one interview at a time on the free tier |
+| LangGraph only in the report, and optional (D35, D38) | Measured: it was slower (10 to 14 s against 7 s), so the simpler path stays the default |
+
+### Hard problems and how they were solved (real stories)
+- **"End interview" needed two clicks.** The server read one message at a time, so "end" waited behind the interviewer's speech. Fix: a persistent receive task that cancels the in-flight turn; saying "stop the interview" is detected by plain code, not another model call (D33).
+- **The mic prompt appeared 15 seconds into the interview.** The VAD library only opens the microphone on first listen. Fix: start and pause it on the Start click, keep one stream (D34).
+- **Whisper mis-heard the candidate's name.** The trace showed the resume had been parsed with no name (the PDF header was an image), so the hint was empty. Fix: fall back to the name from the Google login, and add common interview terms (D48, D50).
+- **Speech did not fit the free server.** Benchmarked Kokoro: time per sentence grows almost in proportion to simultaneous interviews (2.8 s alone, 12 s with six). Fix: a lighter engine (Piper, 0.94 s per sentence on 1 CPU) and a live-interview cap set from the measurement (D42, D47).
+- **Pages were slow.** Measured instead of guessing: the database was in Seoul, the API in Mumbai, the web functions in Virginia (146 ms per query). Fix: one region for all three, 4 ms per query (D49).
+- **Free-tier rate limits.** Each job uses its own model so limits don't collide (D22); short limits are waited out inside the request (D41); jobs retry with the provider's own wait time.
+- **Smaller bugs found by testing:** duplicate competencies counted twice in the score, a model copying the planner's note into a question, a crash from a Promise returned in an effect cleanup.
+
+### Reliability and security, briefly
+- **Reliability:** transactional outbox, `SKIP LOCKED` workers, stale-job requeue, graceful shutdown with browser auto-reconnect, `/ready`, backups with a tested restore, a keep-alive so the free database is never paused.
+- **Security:** login tokens verified locally with a pinned algorithm (ES256) and rotating keys (D16); row-level security on every table plus composite foreign keys so a user can never point at someone else's row (D15); CSP and HSTS (D40); the resume, job and transcript are treated as untrusted text so instructions hidden in them are ignored (D5, D11); the PDF is not stored (D17).
+
+### Numbers you can quote (all measured, see `docs/benchmarks/`)
+- Speech: 0.94 s for a 17-word sentence on a 1-CPU server (Piper); Kokoro 2.8 s alone and 12.4 s with six interviews at once.
+- Database round trip from the API: 146 ms across regions, 4 ms in the same region.
+- Report engines: single call 7 s, LangGraph 10 to 14 s on the same interview.
+- 248 automated API tests plus unit tests and browser end-to-end tests; CI on every push.
+
+### Honest limits (say these before they ask)
+- **One interview at a time** on the free VM (capacity is measured, not guessed).
+- **Grading accuracy is calibrated but not benchmarked:** there is no evaluation set of human-scored interviews, so I cannot quote an agreement number.
+- **The second AI provider** was tested with fakes only, never with a real key.
+- A resume whose header is an image gives the interviewer less to work with (no OCR).
+- Not built yet: interrupting the interviewer, and languages other than English.
+
+### Questions you will probably get
+- **Why WebSocket and not WebRTC?** Interviews are turn-based, so I do not need continuous media. A WebSocket is simpler to authenticate, log and test (D3).
+- **How do you stop a resume from hijacking the model?** Resume, job and transcript go in as clearly-tagged untrusted data, the prompt says to ignore instructions in them, and the *score* is computed by code from checked quotes, so "give me 10/10" has nothing to act on (D5, D14, D37).
+- **How do you know the feedback is not made up?** Every quote must appear in the candidate's own words (checked by code), and a high score without a verified quote is lowered by code.
+- **What happens when Groq rate-limits you?** Short limits are waited out; longer ones become a clear 503 with `Retry-After`; background jobs wait as long as the provider asks; an optional second provider can take over (D22, D41, D46).
+- **How would you scale it?** Today: one process, one VM. Next: more CPU for speech or a hosted text-to-speech, move sessions to shared state so several API instances can run, keep Postgres as the queue until volume needs more.
+- **Why not LangGraph for the interview itself?** The flow is a small state machine with every rule tested, and a node-by-node runner would fight the sentence-by-sentence speech streaming. I used it where the structure is real (parallel scoring in the report) and measured it: it was slower, so it is optional.
+- **What was the hardest bug?** The mis-heard name: the symptom was in speech recognition but the cause was a resume parsed without a name, found by reading what was actually sent to the recognizer.
+- **What would you do differently?** Measure the target machine earlier (I designed for Kokoro before finding the free VM had one CPU), and build an evaluation set for grading from the start.
+
+---
+
 ## 1. What are we building?
 
 A free web app where a person can:
@@ -52,15 +113,17 @@ A free web app where a person can:
    │              │              │
    ▼              ▼              ▼
 ┌────────┐  ┌───────────────┐  ┌──────────────────────┐
-│ Groq   │  │ Kokoro TTS    │  │ Supabase             │
+│ Groq   │  │ Piper / Kokoro│  │ Supabase             │
 │ • SLM  │  │ (self-hosted, │  │ • Postgres (data)    │
 │ • LLM  │  │  same server) │  │ • Auth (Google login)│
-│ • STT  │  │               │  │ • Storage (PDFs)     │
+│ • STT  │  │               │  │ • Row-level security │
 │ (Whisper)│ └───────────────┘  └──────────────────────┘
 └────────┘
 ```
 
-**In one sentence:** the browser records one answer at a time, sends it to our backend, the backend turns speech → text (Whisper), decides what to say next (small language model), turns text → speech (Kokoro), and streams the audio back.
+**In one sentence:** the browser records one answer at a time, sends it to our backend, the backend turns speech → text (Whisper), decides what to say next (small language model), turns text → speech (Piper or Kokoro), and streams the audio back.
+
+> **Updated since this sketch was drawn:** speech in production is **Piper**, in-process, because the free server has one CPU (D47); **the resume PDF is not stored** (D17), so there is no object storage; the current, as-built diagram is in the [README](README.md#architecture), next to the original plan.
 
 ---
 
@@ -76,7 +139,7 @@ A free web app where a person can:
 | File storage | **Supabase Storage** | Same place as DB and auth | S3 needs a card |
 | STT (speech → text) | **Whisper `large-v3-turbo` on Groq** | Very accurate English, very fast, free tier ≈ 8 hours of audio/day | OpenAI Whisper API is paid; self-hosting needs a GPU |
 | SLM / LLM (thinking) | **Groq**: `openai/gpt-oss-20b` for extraction + live turns, `openai/gpt-oss-120b` for the final report | Groq is the fastest free inference; speed matters most in voice | Paid APIs break our "free" rule |
-| TTS (text → speech) | **Kokoro-82M** (self-hosted via Kokoro-FastAPI) | Tiny (82M), natural voice, runs on CPU faster than real time, Apache 2.0 license | Parler-TTS needs GPU; Bark is slow and unpredictable; Groq TTS free tier is too small |
+| TTS (text → speech) | **Kokoro-82M** (self-hosted via Kokoro-FastAPI); **Piper** in production on the 1-CPU free VM (D47) | Tiny (82M), natural voice, runs on CPU faster than real time, Apache 2.0 license | Parler-TTS needs GPU; Bark is slow and unpredictable; Groq TTS free tier is too small |
 | Realtime transport | **WebSocket** | Simple, works everywhere, enough for turn-by-turn talk | WebRTC is for full live calls with interruptions — too complex for now |
 | Voice activity detection | **Silero VAD in browser** (`@ricky0123/vad-web`) | Knows when the user stopped talking → we send one clean recording | Streaming all mic audio wastes quota and bandwidth |
 | Hosting (backend) | **Oracle Cloud Always Free ARM VM** (4 cores, 24 GB RAM) + Docker Compose + Caddy (HTTPS) | Free forever, strong enough to run Kokoro on CPU | Render free tier is too weak for TTS and sleeps |

@@ -18,14 +18,55 @@ It runs on free tiers, so **one interview at a time**. If the rooms are full, tr
 
 ## Architecture
 
+**As built:**
+
+```mermaid
+flowchart LR
+    subgraph Browser["Browser: Next.js 16 on Vercel (Mumbai)"]
+        UI["Interview room and report pages"]
+        VAD["Silero VAD finds the end of an answer"]
+        AQ["Gapless audio queue"]
+    end
+    subgraph VM["Oracle free VM: Caddy and one FastAPI process"]
+        API["FastAPI: REST and one WebSocket per interview"]
+        SM["Interview state machine: code owns the structure"]
+        TTS["Piper speech in-process, Kokoro optional"]
+        JOB["Job worker: builds the report"]
+    end
+    subgraph Groq["Groq free tier"]
+        STT["Whisper large-v3"]
+        LIVE["gpt-oss-20b: live replies"]
+        BIG["gpt-oss-120b: plans and reports"]
+    end
+    DB[("Supabase Postgres, Mumbai, row-level security")]
+    AUTH["Supabase Auth: Google sign-in"]
+
+    UI -->|HTTPS| API
+    VAD -->|"WSS: one finished answer"| API
+    API --> SM
+    SM -->|audio| STT
+    SM -->|"streamed reply"| LIVE
+    SM -->|"one sentence at a time"| TTS
+    TTS -->|"sentence audio"| AQ
+    API <--> DB
+    JOB <--> DB
+    JOB --> BIG
+    UI -->|login| AUTH
+    API -.->|"verifies the token locally"| AUTH
 ```
-Browser (Next.js 16, Vercel) ── HTTPS ──► FastAPI (Oracle free VM, behind Caddy)
-  mic → Silero VAD            ── WSS ───►  ├─ interview state machine: code owns the structure, the model writes the words
-  gapless audio queue                      ├─ Groq: gpt-oss-120b (plans, reports), gpt-oss-20b (live), Whisper large-v3
-                                           ├─ Piper TTS in-process (Kokoro optional on bigger machines)
-                                           ├─ Postgres job queue (outbox + SKIP LOCKED) for reports
-                                           └─► Supabase Postgres (RLS on, Mumbai) + Auth (JWT verified locally)
-```
+
+**Original plan ("Architecture v2"), for comparison.** Drawn before building. It is kept because the differences are the interesting part: see the table under the image.
+
+![Architecture v2: the original plan](docs/architecture-v2.png)
+
+| Planned in v2 | What was built | Why |
+|---|---|---|
+| AI4Bharat speech models, Indian languages | Groq Whisper large-v3 for speech-to-text, English only | A hosted free speech model needs no GPU and no self-hosting. English first was a hard rule ([`projectprep.md`](projectprep.md) section 1); more languages come later |
+| A separate self-hosted "Speech Gateway" service | Speech runs inside the one API process (Piper) or as one optional Kokoro container | Fewer moving parts, and one process owns each live session (D1, D30) |
+| A WebSocket control channel between backend and gateway | One WebSocket per interview, ending at FastAPI | Simpler to secure and test (D3) |
+| Object storage for resume PDFs, audio and report PDFs | None: the PDF is not stored, audio is never stored, reports live in Postgres | Less sensitive data held, nothing extra to run (D17) |
+| SQLAlchemy | asyncpg with plain SQL and Pydantic models | Direct and fast, and the database enforces ownership with composite foreign keys (D15) |
+| Not in the plan | A Postgres job queue, daily limits, calibrated grading, CSP, backups, a live-interview cap | Found necessary while building: D12, D31, D32, D37, D40, D42, D45 |
 
 | Layer | Choice |
 |---|---|
