@@ -5,6 +5,7 @@ WebSocket gets it in its first message (browsers can't set headers on
 WebSockets). Both go through `verify_token`.
 """
 
+import re
 from collections.abc import Callable
 from functools import lru_cache
 from typing import Annotated
@@ -27,9 +28,27 @@ AUDIENCE = "authenticated"
 _bearer = HTTPBearer(auto_error=False)
 
 
+MAX_NAME_CHARS = 60
+# Letters (any language), spaces and the punctuation real names use. Anything else is dropped.
+_NAME_JUNK = re.compile(r"[^\w .'\-]", re.UNICODE)
+
+
+def clean_name(raw: object) -> str | None:
+    """A display name from the login token, made safe to put in a prompt or a greeting.
+
+    It is whatever the person set on their Google account, so it is untrusted text: only name-like
+    characters survive, it is length-capped, and a value with no letters ("123", "@@@") becomes None.
+    """
+    if not isinstance(raw, str):
+        return None
+    name = " ".join(_NAME_JUNK.sub("", raw).split())[:MAX_NAME_CHARS].strip()
+    return name if any(c.isalpha() for c in name) else None
+
+
 class CurrentUser(BaseModel):
     id: UUID
     email: str | None = None
+    name: str | None = None  # from Google sign-in; a fallback when the resume has no readable name
 
 
 class InvalidToken(Exception):
@@ -66,7 +85,9 @@ def verify_token(token: str, jwks: jwt.PyJWKClient) -> CurrentUser:
         raise AuthUnavailable from e
     except jwt.PyJWTError as e:
         raise InvalidToken from e
-    return CurrentUser(id=claims["sub"], email=claims.get("email"))
+    profile = claims.get("user_metadata")
+    name = clean_name(profile.get("full_name") or profile.get("name")) if isinstance(profile, dict) else None
+    return CurrentUser(id=claims["sub"], email=claims.get("email"), name=name)
 
 
 def get_token_verifier(jwks: Annotated[jwt.PyJWKClient, Depends(get_jwks_client)]) -> TokenVerifier:

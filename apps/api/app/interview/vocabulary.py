@@ -5,6 +5,9 @@ from app.resume.schema import ResumeProfile
 
 # Whisper reads at most 224 prompt tokens; ~30 short terms stays well under that.
 MAX_TERMS = 30
+# Interview talk every candidate uses, whatever their resume says. "DSA" came out as "DA's equations"
+# before it was here (D50). Only added when there is room: the candidate's own terms come first.
+COMMON_TERMS = ["DSA", "LeetCode", "system design", "REST APIs"]
 
 
 def vocabulary_prompt(resume: ResumeProfile, job: JobProfile) -> str | None:
@@ -31,6 +34,10 @@ def vocabulary_prompt(resume: ResumeProfile, job: JobProfile) -> str | None:
             seen.add(term.casefold())
             terms.append(term)
     terms = terms[:MAX_TERMS]  # must-haves come first, so they survive the cut
+    if terms:  # common words alone aren't worth biasing the recognizer for
+        for common in COMMON_TERMS:
+            if len(terms) < MAX_TERMS and common.casefold() not in {t.casefold() for t in terms}:
+                terms.append(common)
 
     who = _who(resume)
     if not terms:
