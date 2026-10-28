@@ -12,6 +12,7 @@
     "vad:assets": "node scripts/copy-vad-assets.mjs",
     "predev": "npm run vad:assets",
     "prebuild": "npm run vad:assets",
+    "test:unit": "node --experimental-strip-types --no-warnings --test src/lib/interview/*.test.ts",
     "e2e": "playwright test"
   },
   "dependencies": {

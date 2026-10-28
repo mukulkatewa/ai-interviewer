@@ -6,6 +6,7 @@ import { track } from "@/lib/analytics";
 import { env } from "@/lib/env";
 import { createClient } from "@/lib/supabase/client";
 import { AnswerRecorder } from "./answer-recorder";
+import { reconnectDelay } from "./reconnect";
 import { AudioQueue } from "./audio-queue";
 
 // Protocol: projectprep.md, section 6 (phase 8: interviewer speech arrives sentence by sentence).
@@ -44,18 +45,30 @@ export function useInterviewSocket(interviewId: string) {
   const micLevel = useRef(0);
   const ended = useRef(false);
   const ending = useRef(false); // the candidate asked to stop: ignore anything that belongs to the old turn
+  const started = useRef(false); // Start was clicked: a reconnect resumes by itself, no second click
 
   useEffect(() => {
     let socket: WebSocket | null = null;
     let disposed = false;
+    let attempt = 0; // reconnect attempts since the last successful connection
+    let retryTimer: ReturnType<typeof setTimeout> | undefined;
     const queue = audio.current;
 
     async function handle(message: ServerMessage) {
       switch (message.type) {
         case "ready":
+          attempt = 0; // connected: the next drop starts the backoff over
           setResumable(message.resumable);
           setTotal(message.total);
-          setStatus("ready");
+          if (started.current && recorder.current) {
+            // A reconnect in the middle of an interview (a deploy, a dropped connection): the microphone
+            // and audio are still ours, so pick up where we left off. The interviewer repeats the last question.
+            setNotice(null);
+            setStatus("speaking");
+            ws.current?.send(JSON.stringify({ type: "start" }));
+          } else {
+            setStatus("ready");
+          }
           break;
         case "reply_start":
           if (!ending.current) setStatus("speaking");
@@ -93,12 +106,15 @@ export function useInterviewSocket(interviewId: string) {
           void recorder.current?.destroy(); // release the microphone
           break;
         case "error":
-          setNotice(message.message); // answer errors are followed by turn_end: the candidate just answers again
+          // "busy" is final (the server is full): show it as the problem. Answer errors are followed by
+          // turn_end, so the candidate just answers again.
+          if (message.code === "busy") setProblem(message.message);
+          else setNotice(message.message);
           break;
       }
     }
 
-    (async () => {
+    async function connect() {
       const { data } = await createClient().auth.getSession();
       const token = data.session?.access_token;
       if (disposed) return;
@@ -108,7 +124,8 @@ export function useInterviewSocket(interviewId: string) {
         return;
       }
 
-      socket = new WebSocket(`${env.apiUrl.replace(/^http/, "ws")}/interviews/${interviewId}/ws`);
+      const mine = new WebSocket(`${env.apiUrl.replace(/^http/, "ws")}/interviews/${interviewId}/ws`);
+      socket = mine;
       socket.binaryType = "arraybuffer";
       ws.current = socket;
       // Token in the first message, never the URL: URLs end up in logs (projectprep.md, 6).
@@ -121,15 +138,29 @@ export function useInterviewSocket(interviewId: string) {
         );
       };
       socket.onclose = (event) => {
-        if (disposed || ended.current) return;
+        // A late close from a connection we already replaced must not start a second reconnect loop.
+        if (disposed || ended.current || socket !== mine) return;
+        void recorder.current?.abandon(); // never submit an answer to a dead socket
+        const delay = reconnectDelay(event.code, attempt, ending.current);
+        if (delay !== undefined) {
+          attempt += 1;
+          void queue.stop(); // half a sentence from the old connection must not play over the repeat
+          setStatus("connecting");
+          setNotice("Connection lost. Reconnecting…");
+          retryTimer = setTimeout(() => void connect(), delay);
+          return;
+        }
         setStatus("failed");
-        setProblem(CLOSE_REASONS[event.code] ?? "Connection lost. Reload the page to continue where you left off.");
+        // A specific reason (e.g. "all rooms are full") was already shown from the server's message.
+        setProblem((p) => p ?? CLOSE_REASONS[event.code] ?? "Connection lost. Reload the page to continue where you left off.");
         void recorder.current?.destroy();
       };
-    })();
+    }
+    void connect();
 
     return () => {
       disposed = true;
+      clearTimeout(retryTimer);
       socket?.close();
       void queue.close();
       void recorder.current?.destroy();
@@ -163,6 +194,7 @@ export function useInterviewSocket(interviewId: string) {
       return;
     }
     setNotice(null);
+    started.current = true;
     setStatus("speaking");
     setStartedAt((t) => t ?? Date.now());
     ws.current?.send(JSON.stringify({ type: "start" }));
