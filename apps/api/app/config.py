@@ -53,6 +53,9 @@ class Settings(BaseSettings):
     llm_patience_s: float = 20.0
     # How the feedback report is produced (D38): "single" = one model call, "graph" = LangGraph pipeline.
     report_engine: Literal["single", "graph"] = "single"
+    # Error tracking (D44): off unless a DSN is set. `environment` just labels events.
+    sentry_dsn: str = ""
+    environment: str = "development"
     log_level: str = "INFO"
     # Run the background job worker in this process (D31). Off in tests, which drive it directly.
     run_jobs: bool = True

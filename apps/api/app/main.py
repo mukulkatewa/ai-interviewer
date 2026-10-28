@@ -18,6 +18,7 @@ from app.interview.socket import close_all_for_restart
 from app.interview.socket import router as interview_socket_router
 from app.jobs.worker import Worker
 from app.llm import LLMBusyError, LLMError
+from app.observability import init_error_tracking
 from app.report.service import report_handlers
 from app.resume.router import router as resume_router
 from app.speech.tts import KokoroTTS
@@ -37,6 +38,7 @@ def _configure_logging(level: str) -> None:
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     settings = get_settings()
     _configure_logging(settings.log_level)
+    init_error_tracking(settings.sentry_dsn, settings.environment)
     if not settings.database_url:
         # Fail at startup, not on the first user request.
         raise RuntimeError("DATABASE_URL is not set")
