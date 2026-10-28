@@ -19,12 +19,13 @@ def intro(interview: Interview) -> str:
     # ~170 ms per word, so "Hi Rahul!" starts playing in ~0.6 s (D23).
     name = _first_name(interview)
     greeting = f"Hi {name}!" if name else "Hi there!"
-    role = f"the {interview.job_title} role" if interview.job_title else "this role"
+    role = f"the {interview.job_title} role" if interview.job_title else "a general practice interview"
     company = f" at {interview.company}" if interview.company else ""
+    draw = "what draws you to this role" if interview.job_title else "what kind of work you want to do next"
     return (
         f"{greeting} I'm your interviewer today for {role}{company}. "
         "This will take about fifteen minutes, so answer in your own words, the way you would in a real interview. "
-        "Let's start with an easy one. Tell me about yourself, and what draws you to this role?"
+        f"Let's start with an easy one. Tell me about yourself, and {draw}?"
     )
 
 

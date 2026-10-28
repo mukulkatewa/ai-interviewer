@@ -2,7 +2,7 @@ from typing import Annotated
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException
-from pydantic import BaseModel
+from pydantic import BaseModel, Field, model_validator
 
 from app import limits
 from app.auth import AuthUser
@@ -18,7 +18,21 @@ router = APIRouter(prefix="/interviews", tags=["interviews"])
 
 
 class CreateInterviewRequest(BaseModel):
-    analysis_id: UUID
+    """From a job match report, or straight from a resume (the job description is optional, D36)."""
+
+    analysis_id: UUID | None = None
+    resume_id: UUID | None = None
+    target_role: str | None = Field(None, max_length=120, description="Optional role to practice for; resume-only")
+
+    @model_validator(mode="after")
+    def exactly_one_source(self) -> "CreateInterviewRequest":
+        if (self.analysis_id is None) == (self.resume_id is None):
+            raise ValueError("Send either analysis_id or resume_id")
+        if self.analysis_id is not None:
+            self.target_role = None
+        else:
+            self.target_role = (self.target_role or "").strip() or None
+        return self
 
 
 @router.post("", status_code=201)
@@ -29,15 +43,21 @@ async def create_interview(
     llm: Annotated[LLMClient, Depends(get_analysis_llm)],
 ) -> repo.Interview:
     await limits.enforce(db, user.id, "interviews", get_settings().limit_interviews_per_day)
-    inputs = await repo.get_analysis_inputs(db, user.id, body.analysis_id)
+    if body.analysis_id is not None:
+        inputs = await repo.get_analysis_inputs(db, user.id, body.analysis_id)
+    else:
+        assert body.resume_id is not None  # guaranteed by the request model
+        inputs = await repo.get_resume_inputs(db, user.id, body.resume_id, body.target_role)
     if inputs is None:
-        raise HTTPException(404, "Analysis not found")
+        raise HTTPException(404, "Analysis not found" if body.analysis_id else "Resume not found")
     # Plan first, then insert: no DB connection held during the LLM call (D18).
     # The plan is stored but never returned: candidates shouldn't see questions in advance.
     plan = await make_plan(inputs.resume, inputs.job, inputs.match, llm)
-    interview = await repo.create(db, user.id, body.analysis_id, plan)
-    if interview is None:  # analysis deleted while we were planning
-        raise HTTPException(404, "Analysis not found")
+    interview = await repo.create(
+        db, user.id, plan, analysis_id=body.analysis_id, resume_id=body.resume_id, target_role=body.target_role
+    )
+    if interview is None:  # deleted while we were planning
+        raise HTTPException(404, "Analysis not found" if body.analysis_id else "Resume not found")
     return interview
 
 

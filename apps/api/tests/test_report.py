@@ -8,7 +8,15 @@ from app.jobs import queue
 from app.jobs.worker import Worker
 from app.llm import LLMBusyError
 from app.main import app
-from app.report.evaluate import build_report, clean_question, overall_score, verified_evidence
+from app.report.evaluate import (
+    build_report,
+    calibrate_competency,
+    calibrate_question,
+    clean_question,
+    level_for,
+    overall_score,
+    verified_evidence,
+)
 from app.report.metrics import speaking_metrics
 from app.report.schema import CompetencyScore, Evaluation, QuestionFeedback
 from app.report.service import report_handlers
@@ -28,8 +36,8 @@ def test_verified_evidence_keeps_only_real_quotes():
     assert verified_evidence(quotes, said) == ["added a COMPOUND index on seller id status"]
 
 
-def c(name: str, score: int | None) -> CompetencyScore:
-    return CompetencyScore(competency=name, score=score, rationale="r")
+def c(name: str, score: int | None, evidence: list[str] | None = None) -> CompetencyScore:
+    return CompetencyScore(competency=name, score=score, rationale="r", evidence=evidence or [])
 
 
 def test_overall_score_is_weighted_and_skips_missing():
@@ -70,19 +78,19 @@ def test_speaking_metrics():
 async def test_duplicate_competencies_count_once(fake_llm):
     fake_llm.results[Evaluation] = Evaluation(
         summary="s",
-        competencies=[c("technical_depth", 5), c("communication", 5), c("technical_depth", 1)],
+        competencies=[c("technical_depth", 3, ["a b c"]), c("communication", 3), c("technical_depth", 1)],
     )
     report = await build_report(
-        InterviewPlan(questions=[]), JobProfile(), [], [("a b c", 1.0), ("d e f", 1.0)], fake_llm
+        InterviewPlan(questions=[]), None, JobProfile(), [], [("a b c", 1.0), ("d e f", 1.0)], fake_llm
     )
 
     assert [x.competency for x in report.competencies] == ["technical_depth", "communication"]
-    assert report.competencies[0].score == 5  # first one wins
-    assert report.overall_score == 100
+    assert report.competencies[0].score == 3  # first one wins
+    assert report.overall_score == 50
 
 
 async def test_too_short_interview_skips_the_model(fake_llm):
-    report = await build_report(InterviewPlan(questions=[]), None, [], [("Hi.", 1.0)], fake_llm)
+    report = await build_report(InterviewPlan(questions=[]), None, JobProfile(), [], [("Hi.", 1.0)], fake_llm)
     assert report.insufficient and report.overall_score is None
     assert fake_llm.calls == []
 
@@ -196,3 +204,48 @@ def test_reports_are_private(client, fakes, interview_id, login):
     assert client.get(f"/interviews/{interview_id}/report").status_code == 404
     assert client.post(f"/interviews/{interview_id}/report/retry").status_code == 404
     assert client.get("/interviews").json() == []
+
+
+# --- calibration: the model can't award a strong score without proof (D37) ---------------------
+
+
+def test_strong_score_without_a_verified_quote_is_capped():
+    assert calibrate_competency(c("technical_depth", 5), mostly_short=False).score == 3
+    assert calibrate_competency(c("technical_depth", 5, ["said this"]), mostly_short=False).score == 5
+    assert calibrate_competency(c("technical_depth", 2), mostly_short=False).score == 2  # low scores need no proof
+
+
+def test_communication_is_capped_when_most_answers_are_one_liners():
+    strong = c("communication", 5, ["quote"])
+    assert calibrate_competency(strong, mostly_short=True).score == 3
+    assert calibrate_competency(strong, mostly_short=False).score == 5
+    assert calibrate_competency(c("technical_depth", 5, ["quote"]), mostly_short=True).score == 5  # only communication
+
+
+def test_question_score_needs_a_quote_the_candidate_really_said():
+    said = "I added a compound index on seller id and it cut latency by thirty percent"
+    base = {"question": "Q (focus: x)", "went_well": "w", "missing": "m", "stronger_answer": "s"}
+    real = QuestionFeedback(score=5, quote="added a compound index on seller id", **base)
+    fake = QuestionFeedback(score=5, quote="I scaled it to a billion users", **base)
+
+    assert calibrate_question(real, said).score == 5
+    assert calibrate_question(real, said).question == "Q"
+    assert calibrate_question(fake, said).score == 3 and calibrate_question(fake, said).quote is None
+
+
+def test_level_bands():
+    assert [level_for(s) for s in (None, 90, 80, 65, 62, 50, 41, 0)] == [
+        None, "strong", "strong", "solid", "solid", "developing", "needs_work", "needs_work",
+    ]  # fmt: skip
+
+
+async def test_without_a_job_description_role_fit_is_not_scored(fake_llm):
+    fake_llm.results[Evaluation] = Evaluation(
+        summary="s", competencies=[c("role_fit", 4, ["a b c"]), c("communication", 3)]
+    )
+    report = await build_report(
+        InterviewPlan(questions=[]), None, JobProfile(), [], [("a b c d", 1.0), ("e f g h", 1.0)], fake_llm,
+        has_job_description=False,
+    )  # fmt: skip
+    assert [x.competency for x in report.competencies] == ["communication"]
+    assert "none given" in fake_llm.calls[-1]["user"]

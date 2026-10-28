@@ -21,7 +21,9 @@ def report_handlers(db: asyncpg.Pool, llm: LLMClient) -> tuple[dict[str, Handler
         inputs = await repo.load_for_evaluation(db, user_id, interview_id)
         if inputs is None:
             raise PermanentError("Interview no longer exists")  # deleted after it ended
-        report = await build_report(inputs.plan, inputs.job, inputs.turns, inputs.answers, llm)
+        report = await build_report(
+            inputs.plan, inputs.resume, inputs.job, inputs.turns, inputs.answers, llm, inputs.has_job_description
+        )
         await repo.save_report(db, user_id, interview_id, report)
         logger.info("report interview=%s score=%s", interview_id, report.overall_score)
 

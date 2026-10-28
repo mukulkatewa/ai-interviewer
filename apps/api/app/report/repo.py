@@ -12,11 +12,14 @@ from app.jd.schema import JobProfile
 from app.jobs import queue
 from app.models import ApiModel
 from app.report.schema import Report
+from app.resume.schema import ResumeProfile
 
 
 class EvaluationInputs(BaseModel):
     plan: InterviewPlan
+    resume: ResumeProfile
     job: JobProfile
+    has_job_description: bool  # False: practiced from the resume alone, so role fit can't be judged
     turns: list[Turn]
     answers: list[tuple[str, float | None]]  # (text, audio seconds) per candidate turn
 
@@ -38,9 +41,10 @@ class InterviewSummary(ApiModel):
 async def load_for_evaluation(db: asyncpg.Pool, user_id: UUID, interview_id: UUID) -> EvaluationInputs | None:
     head = await db.fetchrow(
         """
-        select i.plan, j.profile as job from interviews i
-        join analyses a on a.id = i.analysis_id
-        join job_descriptions j on j.id = a.job_description_id
+        select i.plan, j.profile as job, i.target_role, r.profile as resume from interviews i
+        join resumes r on r.id = i.resume_id
+        left join analyses a on a.id = i.analysis_id
+        left join job_descriptions j on j.id = a.job_description_id
         where i.id = $1 and i.user_id = $2
         """,
         interview_id, user_id,
@@ -58,7 +62,9 @@ async def load_for_evaluation(db: asyncpg.Pool, user_id: UUID, interview_id: UUI
         plan=InterviewPlan.model_validate_json(head["plan"])
         if head["plan"]
         else normalize(InterviewPlan(questions=[])),
-        job=JobProfile.model_validate_json(head["job"]),
+        resume=ResumeProfile.model_validate_json(head["resume"]),
+        job=JobProfile.model_validate_json(head["job"]) if head["job"] else JobProfile(title=head["target_role"]),
+        has_job_description=head["job"] is not None,
         turns=[Turn(**{k: r[k] for k in Turn.model_fields}) for r in rows],
         answers=[(r["text"], r["audio_seconds"]) for r in rows if r["role"] == "candidate"],
     )
@@ -118,10 +124,10 @@ async def list_interviews(db: asyncpg.Pool, user_id: UUID, limit: int = 50) -> l
     rows = await db.fetch(
         """
         select i.id, i.status, i.created_at, e.overall_score,
-               j.profile->>'title' as job_title, j.profile->>'company' as company
+               coalesce(j.profile->>'title', i.target_role) as job_title, j.profile->>'company' as company
         from interviews i
-        join analyses a on a.id = i.analysis_id
-        join job_descriptions j on j.id = a.job_description_id
+        left join analyses a on a.id = i.analysis_id
+        left join job_descriptions j on j.id = a.job_description_id
         left join evaluations e on e.interview_id = i.id
         where i.user_id = $1
         order by i.created_at desc
