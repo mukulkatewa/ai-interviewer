@@ -39,10 +39,16 @@ class Settings(BaseSettings):
     # Kokoro-FastAPI (infra/docker-compose.yml, profile "speech"); D23.
     kokoro_url: str = "http://localhost:8880"
     kokoro_voice: str = "af_heart"
+    # Which speech engine runs (D47): "kokoro" (a separate service, needs ~4 CPUs) or "piper" (in this
+    # process, fine on 1 CPU). Piper also needs the voice file: scripts/get-piper-voice.sh.
+    tts_engine: Literal["kokoro", "piper"] = "kokoro"
+    piper_voice_path: str = "voices/en_US-lessac-medium.onnx"
     # A sentence takes ~0.6-4 s on 4 CPUs (benchmark); past this, fall back to browser speech (D26).
     tts_timeout_s: float = 15.0
     # Speech-to-text (benchmarked in docs/benchmarks/speech-2026-10-27.md).
-    groq_stt_model: str = "whisper-large-v3-turbo"
+    # large-v3 over the faster "turbo": noticeably better on accented English and proper nouns, and on Groq
+    # both run far faster than real time (~190x vs ~215x), so the extra latency is tens of milliseconds (D48).
+    groq_stt_model: str = "whisper-large-v3"
     # Interview length cap (D12): checked every turn; past it, the interview wraps up.
     interview_max_minutes: float = 20.0
     # Per-user limits per rolling 24 h (D12, D32). Checked before any LLM spend.

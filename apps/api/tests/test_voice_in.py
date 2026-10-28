@@ -10,7 +10,7 @@ import pytest
 
 from app.interview.vocabulary import MAX_TERMS, vocabulary_prompt
 from app.jd.schema import JobProfile, SkillRequirement
-from app.resume.schema import Experience, Project, ResumeProfile
+from app.resume.schema import Education, Experience, Project, ResumeProfile
 from app.speech.stt import GroqWhisper, STTBusyError, STTError
 from app.speech.wav import AnswerTooLong, BadAudio, max_answer_bytes, wav_duration
 
@@ -124,6 +124,24 @@ def test_vocabulary_is_a_natural_sentence_with_must_haves_first():
     assert prompt == (
         "In this interview we talked about Python, Redis, Go, React, MongoDB, DevChat, Flipkart and Razorpay."
     )  # "redis" deduplicated case-insensitively
+
+
+def test_vocabulary_starts_with_the_candidates_name_and_school():
+    resume = ResumeProfile(
+        name="Mukul Katewa",
+        skills=["React"],
+        education=[Education(institution="NIT Trichy", degree="B.Tech")],
+    )
+    assert vocabulary_prompt(resume, JobProfile()) == (
+        "This is an interview with Mukul Katewa, who studied at NIT Trichy. In this interview we talked about React."
+    )
+    # Name alone, school alone, and neither:
+    assert (
+        vocabulary_prompt(ResumeProfile(name="Mukul Katewa"), JobProfile()) == "This is an interview with Mukul Katewa."
+    )
+    assert vocabulary_prompt(ResumeProfile(education=[Education(institution="NIT Trichy")]), JobProfile()) == (
+        "The candidate studied at NIT Trichy."
+    )
 
 
 def test_vocabulary_is_capped_and_none_when_empty():

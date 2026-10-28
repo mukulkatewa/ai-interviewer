@@ -364,7 +364,10 @@ def test_answer_uses_vocabulary_prompt(client, fakes, interview_id):
     with connect(client, interview_id) as ws:
         start(ws)
         answer(ws)
-    assert stt.prompts[0].startswith("In this interview we talked about Python")  # D24
+    assert "In this interview we talked about Python" in stt.prompts[0]  # D24
+    assert stt.prompts[0].startswith(
+        "This is an interview with Rahul Sharma"
+    )  # the name Whisper must spell right (D48)
 
 
 @pytest.mark.parametrize(
