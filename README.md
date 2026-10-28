@@ -59,6 +59,10 @@ flowchart LR
 
 ![Architecture v2: the original plan](docs/architecture-v2.png)
 
+The same plan, redrawn in a simpler form. Like the one above, it shows services that were **not** built (an AI4Bharat inference service for speech, and object storage) and it leaves out the language model call that drives the interview.
+
+![The plan, simplified](docs/images/architecture-planned-simplified.png)
+
 | Planned in v2 | What was built | Why |
 |---|---|---|
 | AI4Bharat speech models, Indian languages | Groq Whisper large-v3 for speech-to-text, English only | A hosted free speech model needs no GPU and no self-hosting. English first was a hard rule ([`projectprep.md`](projectprep.md) section 1); more languages come later |
