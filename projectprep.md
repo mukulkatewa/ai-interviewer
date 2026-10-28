@@ -359,6 +359,13 @@ Each decision: **what we chose → why → what we gave up.**
 - **Biggest remaining cost:** the database is in Seoul. A new Supabase project in **Mumbai** (`ap-south-1`) makes every query ~2 ms instead of 146 ms, and a turn does several in a row. Free projects: two are allowed. Steps in `docs/deploy.md`.
 - **Rule:** keep the web functions, the API and the database in one region.
 
+### D50. When the resume has no readable name, use the one from the login
+- **What happened:** an answer came back as "Hi, my name is Gul Kateva ... solving DA's equations" (the person is Mukul Katewa, and meant DSA). Checking the stored data: the resume parsed with `name: null` and no education, so the hint sent to Whisper (D24, D48) had neither. The PDF's extracted text started at "Scholastic Achievements": the header and the Education section were never text (drawn as an image or shapes), and we don't do OCR (a scanned resume is a clear error, but a *partly* unreadable one is not detected).
+- **Fix 1: the login name.** Google sign-in puts the person's name in the token (`user_metadata.full_name`). It is cleaned (letters, spaces, `. ' -` only, 60 characters, must contain a letter, because it is untrusted text going into a prompt) and, when the resume has no name, it fills in the greeting ("Hi Mukul!") and the recognition hint. The resume's own name still wins.
+- **Fix 2: common interview words** (`DSA`, `LeetCode`, `system design`, `REST APIs`) are appended to the hint after the candidate's own terms, only when there is room and only when the candidate has terms of their own. "DSA" is exactly what was misheard.
+- **Not fixed (and why):** a resume whose header or education isn't extractable still gives the interviewer less to ask about. Detecting that, or reading it with OCR, is a separate feature.
+- **Not measured:** no recording of the speaker was available; the fixes are tested for what the server sends to Whisper, not for the transcription result.
+
 ---
 
 ## 5. How each feature works (step by step)

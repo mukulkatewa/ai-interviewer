@@ -52,6 +52,19 @@ def _gate(per_ip: int) -> ConnectionGate:
     return _gates.setdefault(per_ip, ConnectionGate(per_ip))
 
 
+def with_login_name(ctx: repo.InterviewContext, user: CurrentUser) -> repo.InterviewContext:
+    """Resume text sometimes has no readable name (a header drawn as an image). The name from the Google
+    login then fills in, for the greeting and for the speech-recognition hint (D50)."""
+    if ctx.resume.name or not user.name:
+        return ctx
+    return ctx.model_copy(
+        update={
+            "resume": ctx.resume.model_copy(update={"name": user.name}),
+            "interview": ctx.interview.model_copy(update={"candidate_name": ctx.interview.candidate_name or user.name}),
+        }
+    )
+
+
 async def close_all_for_restart() -> None:
     """On shutdown (a deploy): tell every live interview to reconnect, instead of letting it time out."""
     sockets = list(_live.values())
@@ -323,6 +336,7 @@ async def interview_socket(
         if ctx is None:
             await ws.close(Close.NOT_FOUND, "Interview not found")
             return
+        ctx = with_login_name(ctx, user)
         if ctx.interview.status not in ("created", "in_progress"):
             await ws.send_json({"type": "ended", "interview_id": str(interview_id)})
             await ws.close()

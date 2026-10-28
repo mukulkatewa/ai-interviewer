@@ -5,14 +5,17 @@ from uuid import UUID
 
 import pytest
 
+from app.auth import CurrentUser
 from app.config import get_settings
-from app.interview import script
+from app.interview import repo, script
 from app.interview.plan import InterviewPlan
+from app.interview.socket import with_login_name
 from app.interview.speaker import ACKNOWLEDGEMENTS
 from app.llm import LLMError
+from app.main import app
 from app.resume.schema import ResumeProfile
 from app.speech.stt import STTBusyError
-from tests.conftest import RESUME_TEXT, USER_B, make_pdf
+from tests.conftest import RESUME_TEXT, USER_A, USER_B, make_pdf
 from tests.interview_fixtures import (
     PLAN,
     Q1,
@@ -479,3 +482,26 @@ def test_end_before_the_interview_started_just_closes(client, fakes, interview_i
         ws.send_json({"type": "end"})
         assert closed_with(ws) == 1000
     assert client.get(f"/interviews/{interview_id}").json()["status"] == "created"
+
+
+# --- the name from the Google login fills in when the resume has none (D50) ----------------
+
+
+def test_login_name_fills_in_for_a_resume_without_one(client, fake_llm):
+    # The resume parsed without a name (a header that isn't text); the Google login knows it.
+    fake_llm.results[ResumeProfile] = ResumeProfile(skills=["Python"])
+    fake_llm.results[InterviewPlan] = PLAN
+    resume_id = client.post("/resumes", files={"file": ("r.pdf", make_pdf(RESUME_TEXT), "application/pdf")}).json()[
+        "id"
+    ]
+    interview_id = client.post("/interviews", json={"resume_id": resume_id}).json()["id"]
+    ctx = client.portal.call(repo.get_context, app.state.pool, USER_A, UUID(interview_id))
+    assert ctx.interview.candidate_name is None
+
+    filled = with_login_name(ctx, CurrentUser(id=USER_A, name="Mukul Katewa"))
+
+    assert (filled.resume.name, filled.interview.candidate_name) == ("Mukul Katewa", "Mukul Katewa")
+    assert script.intro(filled.interview).startswith("Hi Mukul!")
+    assert with_login_name(ctx, CurrentUser(id=USER_A)) is ctx  # no login name either: untouched
+    named = ctx.model_copy(update={"resume": ctx.resume.model_copy(update={"name": "Asha Verma"})})
+    assert with_login_name(named, CurrentUser(id=USER_A, name="Someone Else")) is named  # the resume wins

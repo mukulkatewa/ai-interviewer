@@ -122,8 +122,9 @@ def test_vocabulary_is_a_natural_sentence_with_must_haves_first():
     prompt = vocabulary_prompt(resume, job)
 
     assert prompt == (
-        "In this interview we talked about Python, Redis, Go, React, MongoDB, DevChat, Flipkart and Razorpay."
-    )  # "redis" deduplicated case-insensitively
+        "In this interview we talked about Python, Redis, Go, React, MongoDB, DevChat, Flipkart, Razorpay, "
+        "DSA, LeetCode, system design and REST APIs."
+    )  # "redis" deduplicated case-insensitively; the candidate's own terms first, then common interview words (D50)
 
 
 def test_vocabulary_starts_with_the_candidates_name_and_school():
@@ -133,7 +134,8 @@ def test_vocabulary_starts_with_the_candidates_name_and_school():
         education=[Education(institution="NIT Trichy", degree="B.Tech")],
     )
     assert vocabulary_prompt(resume, JobProfile()) == (
-        "This is an interview with Mukul Katewa, who studied at NIT Trichy. In this interview we talked about React."
+        "This is an interview with Mukul Katewa, who studied at NIT Trichy. "
+        "In this interview we talked about React, DSA, LeetCode, system design and REST APIs."
     )
     # Name alone, school alone, and neither:
     assert (

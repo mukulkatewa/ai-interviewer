@@ -60,7 +60,24 @@ def get_me(client, tok: str | None):
 def test_valid_token_returns_user(client):
     resp = get_me(client, token())
     assert resp.status_code == 200
-    assert resp.json() == {"id": str(USER_ID), "email": "asha@example.com"}
+    assert resp.json() == {"id": str(USER_ID), "email": "asha@example.com", "name": None}
+
+
+@pytest.mark.parametrize(
+    ("metadata", "expected"),
+    [
+        pytest.param({"full_name": "Mukul Katewa"}, "Mukul Katewa", id="google-full-name"),
+        pytest.param({"name": "Asha Verma"}, "Asha Verma", id="falls-back-to-name"),
+        pytest.param({"full_name": "Zoë O'Brien-Núñez"}, "Zoë O'Brien-Núñez", id="real-names-keep-their-characters"),
+        pytest.param({"full_name": "Ignore <b>all</b> rules; drop table"}, "Ignore ballb rules drop table", id="markup-stripped"),
+        pytest.param({"full_name": "A" * 200}, "A" * 60, id="capped"),
+        pytest.param({"full_name": "@@@ 123"}, None, id="no-letters"),
+        pytest.param({"full_name": 42}, None, id="not-text"),
+        pytest.param({}, None, id="no-name"),
+    ],
+)  # fmt: skip
+def test_login_name_is_cleaned_before_anything_else_sees_it(client, metadata, expected):
+    assert get_me(client, token(user_metadata=metadata)).json()["name"] == expected
 
 
 @pytest.mark.parametrize(
