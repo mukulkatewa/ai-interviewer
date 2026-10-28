@@ -1,0 +1,31 @@
+# Free Supabase projects are paused after about a week without database activity (D39).
+# This writes one timestamp every 3 days. A failed run emails the repo owner, so a broken
+# keep-alive is not silent. Setup: docs/deploy.md ("Keep the free database awake").
+name: Keep Supabase awake
+
+on:
+  schedule:
+    - cron: "17 5 */3 * *" # an odd minute avoids GitHub's busy top-of-the-hour queue
+  workflow_dispatch: # run it by hand from the Actions tab to test
+
+permissions: {}
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Call keepalive()
+        env:
+          SUPABASE_URL: ${{ vars.SUPABASE_URL }}
+          SUPABASE_PUBLISHABLE_KEY: ${{ vars.SUPABASE_PUBLISHABLE_KEY }}
+        run: |
+          set -euo pipefail
+          if [ -z "$SUPABASE_URL" ] || [ -z "$SUPABASE_PUBLISHABLE_KEY" ]; then
+            echo "::error::Set the repository variables SUPABASE_URL and SUPABASE_PUBLISHABLE_KEY (docs/deploy.md)"
+            exit 1
+          fi
+          curl --fail-with-body --silent --show-error --max-time 30 --retry 3 --retry-delay 10 \
+            -X POST "${SUPABASE_URL%/}/rest/v1/rpc/keepalive" \
+            -H "apikey: $SUPABASE_PUBLISHABLE_KEY" -H "Content-Type: application/json" -d '{}'
+          echo

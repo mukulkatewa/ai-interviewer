@@ -292,6 +292,14 @@ Each decision: **what we chose → why → what we gave up.**
 - **Edge cases covered by tests:** too-short interview (no model call), parallelism (the calls wait for each other, so a sequential graph would hang), retry only the failed branch, persistent rate limit reaches the worker, malformed output fails loudly, more feedback entries than planned questions or repeated questions are cut, the same report through the real job queue.
 - **Measured, and the result is not flattering:** on the same interview the graph took 10.0 s and 13.9 s against 7.0 s and 7.1 s for the single call, and its scores were less steady (51, 45 against 50, 50). Two runs each, so a direction, not statistics (`docs/benchmarks/report-engines-2026-10-29.md`, `uv run python -m bench.report_engines`). Splitting the work added a third call and repeated the model's reasoning time, so it is **not** an efficiency gain. The default therefore stays `single`; the graph is an optional engine, kept tested and measured, to flip on if a future model or a much longer transcript changes the numbers.
 
+### D39. Keeping the free Supabase project awake
+- **Problem:** Supabase pauses free projects after about a week with little database activity ([docs](https://supabase.com/docs/guides/platform/free-project-pausing)). A paused project means the whole app is down until someone resumes it by hand. The docs say "user database activity"; blogs disagree on whether a plain HTTP ping counts. So the ping must be a real database write.
+- **Decision:** a one-row table `public.keepalive` and a function `public.keepalive()` that updates its timestamp. A scheduled GitHub Action (`.github/workflows/keepalive.yml`) calls it through the REST API with the **public** key every 3 days. No database password or secret key is stored in GitHub: only the project URL and the publishable key, as repository *variables*.
+- **Why this is safe:** `SECURITY DEFINER` with an empty `search_path`, execute granted to `anon` only, and the function touches nothing except that one timestamp. The table itself has RLS on with no policies (D15), so the Data API still can't read or write anything else.
+- **Failure is loud:** a failed run emails the repo owner. GitHub also disables scheduled workflows in a public repo after 60 days without repository activity; any push re-enables it, and the checklist says to check the Actions tab monthly.
+- **Second layer (optional):** `pg_cron` inside Supabase writing the same row daily (docs/deploy.md). Cheap insurance, because the exact definition of "activity" is not documented precisely.
+- **Not a substitute for backups:** free projects have no automatic backups to rely on. A scheduled `pg_dump` is a separate item.
+
 ---
 
 ## 5. How each feature works (step by step)
