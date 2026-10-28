@@ -55,18 +55,19 @@ flowchart LR
     API -.->|"verifies the token locally"| AUTH
 ```
 
-**Original plan ("Architecture v2"), for comparison.** Drawn before building. It is kept because the differences are the interesting part: see the table under the image.
+**The original plan**, drawn before building. It is kept because the differences are the interesting part: see the table under the image.
 
-![Architecture v2: the original plan](docs/architecture-v2.png)
+![The original plan](docs/images/architecture-planned-simplified.png)
 
-| Planned in v2 | What was built | Why |
+| In the plan | What was built | Why |
 |---|---|---|
-| AI4Bharat speech models, Indian languages | Groq Whisper large-v3 for speech-to-text, English only | A hosted free speech model needs no GPU and no self-hosting. English first was a hard rule ([`projectprep.md`](projectprep.md) section 1); more languages come later |
-| A separate self-hosted "Speech Gateway" service | Speech runs inside the one API process (Piper) or as one optional Kokoro container | Fewer moving parts, and one process owns each live session (D1, D30) |
-| A WebSocket control channel between backend and gateway | One WebSocket per interview, ending at FastAPI | Simpler to secure and test (D3) |
-| Object storage for resume PDFs, audio and report PDFs | None: the PDF is not stored, audio is never stored, reports live in Postgres | Less sensitive data held, nothing extra to run (D17) |
-| SQLAlchemy | asyncpg with plain SQL and Pydantic models | Direct and fast, and the database enforces ownership with composite foreign keys (D15) |
-| Not in the plan | A Postgres job queue, daily limits, calibrated grading, CSP, backups, a live-interview cap | Found necessary while building: D12, D31, D32, D37, D40, D42, D45 |
+| An AI4Bharat inference service for speech (IndicConformer, Indic Parler-TTS), called with `POST /stt` and `POST /tts` | Groq Whisper large-v3 for speech-to-text, and Piper (or Kokoro) for speech, all English only | A hosted free speech model needs no GPU and no self-hosting. English first was a hard rule ([`projectprep.md`](projectprep.md) section 1); more languages come later |
+| Speech as a separate service the backend calls | Speech runs inside the one API process (Piper), or as one optional Kokoro container | Fewer moving parts, and one process owns each live session (D1, D30) |
+| Object storage for reports and audio | None: audio is never stored, the resume PDF is not stored, reports live in Postgres | Less sensitive data held, nothing extra to run (D17) |
+| A background worker that generates the report | A worker inside the API process, fed by a Postgres job queue (outbox pattern) | No Redis to run, and a report can never be lost between "interview ended" and "job queued" (D10, D31) |
+| One WebSocket between the browser and the backend | The same: one WebSocket per interview, JSON for control and binary for audio | Simple to secure and test (D3) |
+| The language model that decides what to ask is not drawn | A small fast model for live replies and a larger one for plans and reports, with code owning the interview structure | The most important part, and the one found hardest to get right (D7, D29) |
+| Not in the plan | Daily limits, calibrated grading, CSP, backups, a live-interview cap, error tracking | Found necessary while building: D12, D32, D37, D40, D42, D44, D45 |
 
 | Layer | Choice |
 |---|---|
