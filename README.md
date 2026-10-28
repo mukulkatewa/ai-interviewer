@@ -34,7 +34,7 @@ Browser (Next.js 16, Vercel) ── HTTPS ──► FastAPI (Oracle free VM, beh
 | AI | Groq (LLM and Whisper), optional second provider, optional LangGraph report engine |
 | Speech | Silero VAD in the browser, Piper (1 CPU) or Kokoro (4 CPUs) on the server |
 | Data | Supabase Postgres, row-level security, composite foreign keys for ownership |
-| Ops | systemd + Caddy, `/ready`, nightly backups (tested restore), keep-alive, optional Sentry |
+| Ops | systemd + Caddy, `/ready`, backup script with a tested restore, keep-alive, optional Sentry |
 
 Every decision, with what was chosen, why and what was given up, is in **[`projectprep.md`](projectprep.md)** (D1 to D50).
 
