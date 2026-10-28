@@ -95,4 +95,17 @@ async def llm_failed(_: Request, e: LLMError) -> JSONResponse:
 
 @app.get("/health")
 async def health() -> dict[str, str]:
+    """Liveness: the process is up. Cheap and dependency-free, so a restart loop never hinges on the database."""
     return {"status": "ok"}
+
+
+@app.get("/ready", response_model=None)
+async def ready(request: Request) -> JSONResponse | dict[str, str]:
+    """Readiness: can we serve users? The database is required (503 without it). TTS is reported but not
+    required: when it is down, interviews fall back to browser speech (D26). Point uptime monitors here."""
+    try:
+        await asyncio.wait_for(request.app.state.pool.fetchval("select 1"), timeout=3)
+    except Exception:  # noqa: BLE001 - any failure, including a timeout, means "not ready"
+        return JSONResponse({"status": "unavailable", "database": "down"}, status_code=503)
+    tts = "up" if await request.app.state.tts.healthy() else "down"
+    return {"status": "ok", "database": "up", "tts": tts}
